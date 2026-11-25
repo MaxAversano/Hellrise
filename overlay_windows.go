@@ -10,10 +10,10 @@ package main
 //   Ctrl+Shift+O  mostra/nasconde tutto      Ctrl+Shift+P  paragon      Ctrl+Shift+T  timer
 //   Ctrl+Shift+E  sposta i riquadri          Ctrl+Shift+←/→  tavola precedente/successiva
 //   Ctrl+Shift+↑/↓  fase del paragon (es. Rush → Endgame)
-//   Ctrl+Shift+R / Q  ruota la tavola in senso orario / antiorario
-//   Ctrl+Shift+M  riquadro ↔ sovrapposto alla tavola del gioco
-//   Ctrl+Shift+D  rileva la grandezza delle caselle dallo schermo
-//   Ctrl+Shift+ + / −  caselle più grandi / più piccole (anche con la rotellina mentre sposti)
+//   Ctrl+Shift+R / Q  ruota la tavola del riquadro in senso orario / antiorario
+//   Ctrl+Shift+M  automatico ↔ riquadro sempre visibile
+// In automatico l'overlay riconosce da solo la tavola aperta nella schermata del paragon
+// (grandezza delle caselle, posizione e rotazione) e ci disegna sopra le caselle da prendere.
 
 import (
 	"fmt"
@@ -257,10 +257,12 @@ func paintOverlay(hdc uintptr) {
 	}
 	if ovEdit {
 		for _, r := range hits {
-			ovDash(mem, r, cAcc2)
+			if r.r > r.l {
+				ovDash(mem, r, cAcc2)
+			}
 		}
 		ovRound(mem, rect{ovW/2 - sc(230), sc(14), ovW/2 + sc(230), sc(50)}, sc(14), cHead, cAcc)
-		ovText(mem, "Trascina i riquadri · rotellina = caselle · Ctrl+Shift+E per finire", rect{ovW/2 - sc(230), sc(14), ovW/2 + sc(230), sc(50)}, cInk, ovFont(int(13*k), true), dtCenter)
+		ovText(mem, "Trascina i riquadri · rotellina = grandezza paragon · Ctrl+Shift+E per finire", rect{ovW/2 - sc(230), sc(14), ovW/2 + sc(230), sc(50)}, cInk, ovFont(int(13*k), true), dtCenter)
 	}
 	ovHits = hits
 	pBitBlt.Call(hdc, 0, 0, uintptr(ovW), uintptr(ovH), mem, 0, 0, srcCopy)
@@ -416,7 +418,7 @@ func currentBoard(o OverlaySet) (curBoard, string) {
 }
 
 func drawParagon(hdc uintptr, o OverlaySet, sc func(float64) int32, k float64) rect {
-	if o.Mode == "align" {
+	if o.Mode != "panel" {
 		return drawParagonAligned(hdc, o, sc, k)
 	}
 	cell := o.Cell
@@ -517,7 +519,7 @@ func drawParagon(hdc uintptr, o OverlaySet, sc func(float64) int32, k float64) r
 	if leg != "" {
 		ovText(hdc, leg, rect{x + sc(14), fy, x + w - sc(14), fy + sc(20)}, cAcc, ovFont(int(12*k), true), dtLeft)
 	}
-	hint := "Ctrl+Shift+←/→ tavola · R/Q ruota · M sovrapponi"
+	hint := "Ctrl+Shift+←/→ tavola · R/Q ruota · M automatico"
 	if cb.rot != board.Rotation {
 		hint = "Ruotata da te: " + rotLabel(cb.rot) + " · " + hint
 	}
@@ -545,62 +547,121 @@ func ovFrame(hdc uintptr, r rect, t int32, color uintptr) {
 	ovFill(hdc, rect{r.r - t, r.t, r.r, r.b}, color)
 }
 
-// modalità sovrapposta: solo cornici sulle caselle da prendere, allineate alla tavola del gioco
+// automatico: cornici sulle caselle da prendere, sopra la tavola riconosciuta sullo schermo.
+// Se la schermata del paragon non è aperta non disegna nulla.
 func drawParagonAligned(hdc uintptr, o OverlaySet, sc func(float64) int32, k float64) rect {
-	cb, perr := currentBoard(o)
-	cp := o.CellPx
-	if cp < 6 {
-		cp = 40
+	det, fresh := lastDetect()
+	cb, _ := currentBoard(o)
+	if !fresh || cb.step == nil || det.Board < 0 || det.Board >= len(cb.step.Boards) {
+		return rect{}
 	}
-	w := 21
-	if cb.board != nil {
-		w = cb.board.Width
-	}
-	gx, gy := int32(o.AlignX*float64(ovW)), int32(o.AlignY*float64(ovH))
+	cb.board = &cb.step.Boards[det.Board]
+	w := cb.board.Width
+	cells := rotateGrid(cb.board.RawCells, w, det.Rot)
+	sel := rotateGrid(cb.board.RawSel, w, det.Rot)
+	cp := det.Cell
+	gx, gy := int32(det.X), int32(det.Y)
 	side := int32(float64(w) * cp)
-	// etichetta sopra la griglia
-	lw, lh := sc(430), sc(28)
+	lw, lh := sc(420), sc(28)
 	lx, ly := gx, gy-lh-sc(8)
 	if ly < 0 {
 		ly = gy + side + sc(8)
 	}
-	label := "Paragon: scegli una build in Hellrise → Overlay"
-	if perr != "" {
-		label = "Planner non disponibile: " + perr
-	}
-	if cb.board != nil {
-		label = fmt.Sprintf("Tavola %d/%d · %s · %s", clampInt(o.Board, 0, len(cb.step.Boards)-1)+1, len(cb.step.Boards), pick(cb.board.Name, cb.board.En), rotLabel(cb.board.Rotation))
-		if g := pick(cb.board.Glyph, cb.board.GlyphEn); g != "" {
-			label += " · glifo " + g
-		}
+	label := fmt.Sprintf("Tavola %d/%d · %s", det.Board+1, len(cb.step.Boards), pick(cb.board.Name, cb.board.En))
+	if g := pick(cb.board.Glyph, cb.board.GlyphEn); g != "" {
+		label += " · glifo " + g
 	}
 	ovRound(hdc, rect{lx, ly, lx + lw, ly + lh}, sc(12), cPanel, cBorder)
 	ovText(hdc, label, rect{lx + sc(10), ly, lx + lw - sc(10), ly + lh}, cInk, ovFont(int(12*k), true), dtLeft)
-	if cb.board == nil {
-		return rect{lx, ly, lx + lw, ly + lh}
-	}
 	t := int32(cp / 12)
 	if t < 2 {
 		t = 2
 	}
-	for i := 0; i < len(cb.cells); i++ {
-		c := cb.cells[i]
-		if c == '0' {
+	for i := 0; i < len(cells); i++ {
+		if cells[i] == '0' || sel[i] != '1' {
 			continue
 		}
 		x0 := gx + int32(float64(i%w)*cp)
 		y0 := gy + int32(float64(i/w)*cp)
 		x1 := gx + int32(float64(i%w+1)*cp)
 		y1 := gy + int32(float64(i/w+1)*cp)
-		r := rect{x0 + 1, y0 + 1, x1 - 1, y1 - 1}
-		if cb.sel[i] == '1' {
-			cc := cellCol[c]
-			ovFrame(hdc, r, t, cc[1])
-		} else if ovEdit {
-			ovFrame(hdc, r, 1, col(0x5A4A40)) // in modalità "sposta" si vede tutta la griglia per allinearla
+		ovFrame(hdc, rect{x0 + 1, y0 + 1, x1 - 1, y1 - 1}, t, cellCol[cells[i]][1])
+	}
+	return rect{}
+}
+
+// ---------- riconoscimento automatico della tavola ----------
+
+var det struct {
+	sync.Mutex
+	last BoardDetect
+	at   time.Time
+	cand BoardDetect
+}
+
+func lastDetect() (BoardDetect, bool) {
+	det.Lock()
+	defer det.Unlock()
+	return det.last, det.last.OK && time.Since(det.at) < 3*time.Second
+}
+
+func autoDetectLoop() {
+	for {
+		time.Sleep(1200 * time.Millisecond)
+		o := getSettings().Overlay
+		if !o.Enabled || !o.Paragon.On || o.Mode == "panel" || ovHideAll || !diabloForeground() {
+			continue
+		}
+		cb, _ := currentBoard(o)
+		if cb.board == nil || cb.step == nil {
+			continue
+		}
+		g, w, h := captureGray(rect{0, 0, ovW, ovH})
+		if g == nil {
+			continue
+		}
+		f := 1.0
+		if w > 2200 { // 4K: metà risoluzione basta e va più veloce
+			g, w, h = halfGray(g, w, h)
+			f = 2
+		}
+		minP, maxP := int(float64(h)/1080*14), int(float64(h)/1080*140)
+		// prova tutte le tavole della fase: capisce da solo quale hai aperto
+		var d BoardDetect
+		bi := -1
+		for i, b := range cb.step.Boards {
+			x := detectBoard(g, w, h, b.RawCells, b.Width, minP, maxP)
+			if x.OK && (!d.OK || x.Score > d.Score) {
+				d, bi = x, i
+			}
+		}
+		d.Board = bi
+		det.Lock()
+		if d.OK {
+			d.X, d.Y, d.Cell = d.X*f, d.Y*f, d.Cell*f
+			c := det.cand
+			same := c.OK && absf(c.Cell-d.Cell) < 0.05*d.Cell && absf(c.X-d.X) < d.Cell/3 && absf(c.Y-d.Y) < d.Cell/3 && c.Rot == d.Rot && c.Board == d.Board
+			if same || (det.last.OK && time.Since(det.at) < 3*time.Second) {
+				det.last, det.at = d, time.Now()
+			}
+			det.cand = d
+		} else {
+			det.cand = BoardDetect{}
+		}
+		det.Unlock()
+	}
+}
+
+func halfGray(g []float64, w, h int) ([]float64, int, int) {
+	w2, h2 := w/2, h/2
+	out := make([]float64, w2*h2)
+	for y := 0; y < h2; y++ {
+		for x := 0; x < w2; x++ {
+			i := 2*y*w + 2*x
+			out[y*w2+x] = (g[i] + g[i+1] + g[i+w] + g[i+w+1]) / 4
 		}
 	}
-	return rect{gx, gy, gx + side, gy + side}
+	return out, w2, h2
 }
 
 // ---------- rilevamento della grandezza delle caselle ----------
@@ -638,82 +699,6 @@ func captureGray(r rect) ([]float64, int, int) {
 	return g, w, h
 }
 
-func detectCellSize() {
-	o := getSettings().Overlay
-	var area rect
-	if o.Mode == "align" && o.CellPx >= 6 {
-		side := int32(21 * o.CellPx)
-		gx, gy := int32(o.AlignX*float64(ovW)), int32(o.AlignY*float64(ovH))
-		area = rect{gx - side/5, gy - side/5, gx + side + side/5, gy + side + side/5}
-	} else {
-		area = rect{ovW / 5, ovH / 8, ovW * 4 / 5, ovH * 7 / 8}
-	}
-	if area.l < 0 {
-		area.l = 0
-	}
-	if area.t < 0 {
-		area.t = 0
-	}
-	if area.r > ovW {
-		area.r = ovW
-	}
-	if area.b > ovH {
-		area.b = ovH
-	}
-	// nasconde l'overlay per un attimo, così nella cattura c'è solo il gioco
-	pShowWindow.Call(ovHwnd, 0)
-	time.Sleep(120 * time.Millisecond)
-	g, w, h := captureGray(area)
-	if ovVisible {
-		pShowWindow.Call(ovHwnd, 8)
-	}
-	if g == nil {
-		return
-	}
-	cols := make([]float64, w-1)
-	rows := make([]float64, h-1)
-	for y := 0; y < h; y++ {
-		for x := 0; x < w-1; x++ {
-			d := g[y*w+x+1] - g[y*w+x]
-			if d < 0 {
-				d = -d
-			}
-			cols[x] += d
-		}
-	}
-	for y := 0; y < h-1; y++ {
-		for x := 0; x < w; x++ {
-			d := g[(y+1)*w+x] - g[y*w+x]
-			if d < 0 {
-				d = -d
-			}
-			rows[y] += d
-		}
-	}
-	minL, maxL := int(float64(ovH)/1080*14), int(float64(ovH)/1080*130)
-	px, rx := dominantPeriod(cols, minL, maxL)
-	py, ry := dominantPeriod(rows, minL, maxL)
-	var cell float64
-	switch {
-	case px > 0 && py > 0 && absf(float64(px-py)) <= 0.15*float64(px):
-		cell = float64(px+py) / 2
-	case rx >= ry && px > 0:
-		cell = float64(px)
-	case py > 0:
-		cell = float64(py)
-	}
-	log.Printf("overlay: caselle rilevate x=%d (%.2f) y=%d (%.2f) → %.1f px", px, rx, py, ry, cell)
-	if cell < 6 || (rx < 0.15 && ry < 0.15) {
-		notify("Paragon: caselle non riconosciute", "Apri la schermata del paragon, centra la tavola e riprova (Ctrl+Shift+D)")
-		return
-	}
-	updateSettings(func(s *Settings) {
-		s.Overlay.CellPx = cell
-		s.Overlay.Mode = "align"
-	})
-	notify("Paragon: caselle riconosciute", fmt.Sprintf("Passo di %.0f pixel. Con Ctrl+Shift+E sposta la griglia sopra la tavola.", cell))
-}
-
 func clampInt(v, lo, hi int) int {
 	if v < lo {
 		return lo
@@ -741,7 +726,7 @@ func setOverlayHotkeys(on bool) {
 	}
 	ovHotkeys = on
 	keys := map[int]uintptr{1: 'O', 2: 'P', 3: 'T', 4: 'E', 5: 0x27, 6: 0x25, 7: 0x26, 8: 0x28,
-		9: 'R', 10: 'Q', 11: 0xBB, 12: 0xBD, 13: 'D', 14: 'M', 15: 0x6B, 16: 0x6D}
+		9: 'R', 10: 'Q', 14: 'M'}
 	for id, vk := range keys {
 		if on {
 			pRegisterHotKey.Call(ovHwnd, uintptr(id), modControl|modShift|modNoRepeat, vk)
@@ -807,17 +792,12 @@ func overlayHotkey(id int) {
 				s.Overlay.Rot[cb.key] = ((cb.rot+d)%4 + 4) % 4
 			})
 		}
-	case 11, 12, 15, 16:
-		grow := id == 11 || id == 15
-		updateSettings(func(s *Settings) { resizeCells(&s.Overlay, grow, 1) })
-	case 13:
-		go detectCellSize()
 	case 14:
 		updateSettings(func(s *Settings) {
-			if s.Overlay.Mode == "align" {
-				s.Overlay.Mode = "panel"
+			if s.Overlay.Mode == "panel" {
+				s.Overlay.Mode = "auto"
 			} else {
-				s.Overlay.Mode = "align"
+				s.Overlay.Mode = "panel"
 			}
 		})
 	case 5, 6, 7, 8:
@@ -848,20 +828,6 @@ func overlayHotkey(id int) {
 }
 
 func resizeCells(o *OverlaySet, grow bool, steps float64) {
-	if o.Mode == "align" {
-		d := 0.5 * steps
-		if !grow {
-			d = -d
-		}
-		o.CellPx = float64(int((o.CellPx+d)*2+0.5)) / 2
-		if o.CellPx < 6 {
-			o.CellPx = 6
-		}
-		if o.CellPx > 160 {
-			o.CellPx = 160
-		}
-		return
-	}
 	if grow {
 		o.Cell++
 	} else {
@@ -905,8 +871,6 @@ func ovWndProc(hwnd, msg, wparam, lparam uintptr) uintptr {
 			setMu.Lock()
 			if key == "timers" {
 				settings.Overlay.Timers.X, settings.Overlay.Timers.Y = fx, fy
-			} else if settings.Overlay.Mode == "align" {
-				settings.Overlay.AlignX, settings.Overlay.AlignY = fx, fy
 			} else {
 				settings.Overlay.Paragon.X, settings.Overlay.Paragon.Y = fx, fy
 			}
@@ -914,7 +878,7 @@ func ovWndProc(hwnd, msg, wparam, lparam uintptr) uintptr {
 			pInvalidateRect.Call(hwnd, 0, 0)
 		}
 		return 0
-	case 0x020A: // WM_MOUSEWHEEL: grandezza delle caselle mentre sposti
+	case 0x020A: // WM_MOUSEWHEEL: grandezza del riquadro paragon mentre sposti
 		if ovEdit {
 			delta := int16(wparam >> 16)
 			updateSettings(func(s *Settings) { resizeCells(&s.Overlay, delta > 0, 1) })
@@ -949,7 +913,12 @@ func startOverlay() {
 		return
 	}
 	pSetLayeredAttr.Call(ovHwnd, keyColor, 0, lwaColorKey)
+	// l'overlay non compare nelle catture dello schermo (così il riconoscimento vede solo il gioco)
+	if p := u32.NewProc("SetWindowDisplayAffinity"); p.Find() == nil {
+		p.Call(ovHwnd, 0x11) // WDA_EXCLUDEFROMCAPTURE
+	}
 	pSetTimer.Call(ovHwnd, 1, 500, 0)
+	go autoDetectLoop()
 	var m msgT
 	for {
 		r, _, _ := pGetMessage.Call(uintptr(unsafe.Pointer(&m)), 0, 0, 0)

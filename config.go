@@ -64,7 +64,7 @@ func defaultSettings() Settings {
 		Notifications: true, NotifyBoss: true, NotifyHelltide: false, NotifyLegion: false, NotifyBefore: 5,
 		Blur: true, Motion: true, Accent: "ember", Lang: "it",
 		Overlay: OverlaySet{Enabled: true, Scale: 1, Timers: OWidget{On: true, X: 0.012, Y: 0.28}, TBoss: true, THelltide: true, TLegion: true,
-			Paragon: OWidget{On: true, X: 0.69, Y: 0.14}, Cell: 13, Mode: "panel", CellPx: 40, AlignX: 0.3, AlignY: 0.2},
+			Paragon: OWidget{On: true, X: 0.69, Y: 0.14}, Cell: 13, Mode: "auto", CellPx: 40, AlignX: 0.3, AlignY: 0.2},
 	}
 }
 

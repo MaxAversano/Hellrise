@@ -68,3 +68,47 @@ func TestPeriod(t *testing.T) {
 		t.Fatalf("rotazione: %s", rotateGrid("abcd", 2, 1))
 	}
 }
+
+func TestDetectBoard(t *testing.T) {
+	// tavola finta 21x21 con forma irregolare, ruotata di 1 quarto e disegnata a passo 33 px
+	bw := 21
+	raw := make([]byte, bw*bw)
+	for i := range raw {
+		x, y := i%bw, i/bw
+		raw[i] = '0'
+		if (x == 10) || (y == 10 && x > 3) || (x+y)%5 == 0 && x > 2 && y < 15 || (x == 3 && y > 12) {
+			raw[i] = '1'
+		}
+	}
+	shown := rotateGrid(string(raw), bw, 1)
+	P := 33
+	w, h := 1100, 900
+	g := make([]float64, w*h)
+	ox, oy := 77, 61
+	for y := 0; y < h; y++ {
+		for x := 0; x < w; x++ {
+			g[y*w+x] = 18 + float64((x*31+y*17)%7)
+		}
+	}
+	for j := 0; j < bw; j++ {
+		for i := 0; i < bw; i++ {
+			if shown[j*bw+i] == '0' {
+				continue
+			}
+			for y := oy + j*P + 5; y < oy+(j+1)*P-5; y++ {
+				for x := ox + i*P + 5; x < ox+(i+1)*P-5; x++ {
+					v := 90.0
+					if (x+y)%6 < 3 {
+						v = 160
+					}
+					g[y*w+x] = v
+				}
+			}
+		}
+	}
+	d := detectBoard(g, w, h, string(raw), bw, 14, 130)
+	t.Logf("%+v", d)
+	if !d.OK || d.Rot != 1 || absf(d.X-float64(ox)) > 3 || absf(d.Y-float64(oy)) > 3 || absf(d.Cell-float64(P)) > 1 {
+		t.Fatalf("tavola non riconosciuta bene")
+	}
+}
