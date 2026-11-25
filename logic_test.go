@@ -2,6 +2,7 @@ package main
 
 import (
 	"encoding/json"
+	"math"
 	"os"
 	"testing"
 	"time"
@@ -96,13 +97,23 @@ func TestDetectBoard(t *testing.T) {
 			if shown[j*bw+i] == '0' {
 				continue
 			}
-			for y := oy + j*P + 5; y < oy+(j+1)*P-5; y++ {
-				for x := ox + i*P + 5; x < ox+(i+1)*P-5; x++ {
-					v := 90.0
-					if (x+y)%6 < 3 {
-						v = 160
+			// nodo come nel gioco: anello chiaro e icona al centro
+			cx, cy := float64(ox+i*P)+float64(P)/2, float64(oy+j*P)+float64(P)/2
+			for y := oy + j*P; y < oy+(j+1)*P; y++ {
+				for x := ox + i*P; x < ox+(i+1)*P; x++ {
+					r := math.Hypot(float64(x)+0.5-cx, float64(y)+0.5-cy)
+					switch {
+					case r > 0.36*float64(P) && r < 0.44*float64(P):
+						g[y*w+x] = 170
+					case r < 0.22*float64(P):
+						if (x+y)%4 < 2 {
+							g[y*w+x] = 200
+						} else {
+							g[y*w+x] = 60
+						}
+					case r < 0.36*float64(P):
+						g[y*w+x] = 45
 					}
-					g[y*w+x] = v
 				}
 			}
 		}

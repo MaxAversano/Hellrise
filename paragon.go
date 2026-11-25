@@ -684,72 +684,90 @@ func periodPeaks(sig []float64, minL, maxL, k int) []int {
 	return out
 }
 
-// rifinitura della posizione: il centro di ogni nodo è il baricentro dei bordi (anello e icona)
-// nella sua casella; si ricava la retta migliore per colonne e righe (posizione e passo)
+// rifinitura della posizione: si sposta la tavola (anche di mezza casella) finché i nodi cadono
+// al centro delle caselle con l'icona (molto contrasto) e le caselle vuote della tavola restano
+// "piatte". Poi passo e posizione al decimo di pixel.
 func refineDetect(g []float64, w, h int, d BoardDetect, raw string, bw int) BoardDetect {
 	if !d.OK {
 		return d
 	}
+	in := newInteg(g, w, h)
 	m := rotateGrid(raw, bw, d.Rot)
-	for it := 0; it < 3; it++ {
-		var sx, sxx, sxy, sy, n float64 // regressione: centro x = X + (i+0.5)*P
-		var ty, tyy, tyc, tc, tn float64
-		P := d.Cell
-		for idx := 0; idx < len(m); idx++ {
-			if m[idx] == '0' {
-				continue
-			}
-			i, j := idx%bw, idx/bw
-			x0, y0 := int(d.X+float64(i)*P), int(d.Y+float64(j)*P)
-			x1, y1 := int(d.X+float64(i+1)*P), int(d.Y+float64(j+1)*P)
-			if x0 < 1 || y0 < 1 || x1 >= w-1 || y1 >= h-1 {
-				continue
-			}
-			var ex, ey, es float64
-			for y := y0; y < y1; y++ {
-				for x := x0; x < x1; x++ {
-					e := absf(g[y*w+x+1]-g[y*w+x-1]) + absf(g[(y+1)*w+x]-g[(y-1)*w+x])
-					ex += e * float64(x)
-					ey += e * float64(y)
-					es += e
+	minI, maxI, minJ, maxJ := bw, -1, bw, -1
+	for i := 0; i < len(m); i++ {
+		if m[i] != '0' {
+			x, y := i%bw, i/bw
+			minI, maxI, minJ, maxJ = min(minI, x), max(maxI, x), min(minJ, y), max(maxJ, y)
+		}
+	}
+	score := func(X, Y, P float64) float64 {
+		var sn, se float64
+		var nn, ne int
+		for j := minJ; j <= maxJ; j++ {
+			for i := minI; i <= maxI; i++ {
+				cx, cy := X+float64(i)*P, Y+float64(j)*P
+				if cx < 0 || cy < 0 || cx+P > float64(w) || cy+P > float64(h) {
+					continue
+				}
+				v := in.std(int(cx+P*0.3), int(cy+P*0.3), int(cx+P*0.7), int(cy+P*0.7))
+				if m[j*bw+i] != '0' {
+					sn += v
+					nn++
+				} else {
+					se += v
+					ne++
 				}
 			}
-			if es <= 0 {
-				continue
-			}
-			cx, cy := ex/es, ey/es
-			fi, fj := float64(i)+0.5, float64(j)+0.5
-			sx += fi
-			sxx += fi * fi
-			sxy += fi * cx
-			sy += cx
-			n++
-			ty += fj
-			tyy += fj * fj
-			tyc += fj * cy
-			tc += cy
-			tn++
 		}
-		if n < 10 {
-			return d
+		if nn < 10 {
+			return -1e9
 		}
-		den := n*sxx - sx*sx
-		den2 := tn*tyy - ty*ty
-		if den <= 0 || den2 <= 0 {
-			return d
+		r := sn / float64(nn)
+		if ne > 0 {
+			r -= se / float64(ne)
 		}
-		px := (n*sxy - sx*sy) / den
-		py := (tn*tyc - ty*tc) / den2
-		np := (px + py) / 2
-		if absf(np-d.Cell) > 0.08*d.Cell {
-			np = d.Cell
-		}
-		// posizione con il passo comune
-		var ax, ay float64
-		ax = (sy - np*sx) / n
-		ay = (tc - np*ty) / tn
-		d.X, d.Y, d.Cell = ax, ay, np
+		return r
 	}
+	P := d.Cell
+	type cand struct{ x, y, s float64 }
+	var cs []cand
+	bs := -1e18
+	for dy := -P / 2; dy <= P/2; dy++ {
+		for dx := -P / 2; dx <= P/2; dx++ {
+			s := score(d.X+dx, d.Y+dy, P)
+			cs = append(cs, cand{d.X + dx, d.Y + dy, s})
+			bs = maxf(bs, s)
+		}
+	}
+	// se il massimo è un "altopiano" si prende il suo centro
+	var bx, by, nb float64
+	for _, c := range cs {
+		if c.s >= bs-absf(bs)*0.003 {
+			bx += c.x
+			by += c.y
+			nb++
+		}
+	}
+	bx, by = bx/nb, by/nb
+	bs = score(bx, by, P)
+	// passo: lo stesso centro della tavola, caselle un po' più grandi o più piccole
+	cxm := float64(minI+maxI+1) / 2
+	cym := float64(minJ+maxJ+1) / 2
+	bp := P
+	for dp := -0.06 * P; dp <= 0.06*P; dp += 0.1 {
+		p2 := P + dp
+		x2 := bx + cxm*P - cxm*p2
+		y2 := by + cym*P - cym*p2
+		for dy := -2.0; dy <= 2; dy += 0.5 {
+			for dx := -2.0; dx <= 2; dx += 0.5 {
+				if s := score(x2+dx, y2+dy, p2); s > bs {
+					bs, bp = s, p2
+					bx, by = x2+dx, y2+dy
+				}
+			}
+		}
+	}
+	d.X, d.Y, d.Cell = bx, by, bp
 	return d
 }
 
