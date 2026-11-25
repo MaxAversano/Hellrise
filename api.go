@@ -70,6 +70,23 @@ func setupAPI(mux *http.ServeMux) {
 		jsonOut(w, map[string]any{"season": n, "builds": list, "rob": v.Rob, "updated": v.Updated})
 	})
 
+	mux.HandleFunc("/api/mobabuild", func(w http.ResponseWriter, r *http.Request) {
+		b, err := mobaBuildDetail(r.URL.Query().Get("u"))
+		if err != nil {
+			jsonErr(w, 502, "Mobalytics: "+err.Error())
+			return
+		}
+		jsonOut(w, b)
+	})
+
+	mux.HandleFunc("/api/guide", func(w http.ResponseWriter, r *http.Request) {
+		u := r.URL.Query().Get("u")
+		if strings.HasPrefix(u, "https://") {
+			go openGuideWindow(u)
+		}
+		w.WriteHeader(204)
+	})
+
 	mux.HandleFunc("/api/build", func(w http.ResponseWriter, r *http.Request) {
 		b, err := plannerBuild(r.URL.Query().Get("id"))
 		if err != nil {

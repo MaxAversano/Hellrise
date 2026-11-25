@@ -21,6 +21,7 @@ async function api(path, opts) {
 const post = (path, body) => api(path, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body) });
 function toast(msg) { const t = $('#toast'); t.textContent = msg; t.classList.add('on'); clearTimeout(t._h); t._h = setTimeout(() => t.classList.remove('on'), 2600); }
 function openLink(u) { if (window.DEMO) window.open(u, '_blank'); else fetch('/api/open?u=' + encodeURIComponent(u)); }
+function openGuide(u) { if (window.DEMO) window.open(u, '_blank'); else fetch('/api/guide?u=' + encodeURIComponent(u)); }
 async function copy(text, what) { try { await navigator.clipboard.writeText(text); toast((what || 'Testo') + ' copiato'); } catch { toast('Copia non riuscita'); } }
 const lang = () => S.st?.settings?.lang || 'it';
 const nm = (it, en) => (lang() === 'en' ? (en || it) : (it || en)) || '';
@@ -251,8 +252,9 @@ PAGES.build = async main => {
   try { data = await getBuilds(S.season); } catch (e) { $('#blist').innerHTML = noData(e.message); return; }
   const lv = levelingPick(data, S.cls);
   $('#lvb').innerHTML = lv ? `<div class="glass lvbanner"><span class="ic">${IC.sprout}</span><div style="flex:1"><div class="lbl">Leveling consigliato per ${esc(clsName(S.cls))}</div><div style="font:600 17px/1.3 var(--serif);margin-top:3px">${esc(lv.title)} ${lv.tier ? tierBadge(lv.tier) : ''}</div><div class="muted" style="font-size:12.5px">${esc(lv.info || '')}${lv.src === 'Rob2628' ? ' · dalla tier list leveling di Rob2628' : ''}</div></div>${lv.maxroll ? `<button class="btn" id="lvopen">Apri su Hellrise</button>` : ''}${lv.url ? `<button class="btn ghost" id="lvlink">${IC.ext} Guida</button>` : ''}</div>` : '';
-  if (lv?.url) $('#lvlink').onclick = () => openLink(lv.url);
+  if (lv?.url) $('#lvlink').onclick = () => openGuide(lv.url);
   if (lv?.maxroll) $('#lvopen').onclick = () => { ui.type = 'Tutte'; ui.sel = lv.maxroll.url; ui.variantName = 'level'; PAGES.build(main); };
+  ui.all = data.builds;
   let list = data.builds.filter(b => b.cls === S.cls);
   if (ui.type !== 'Tutte') list = list.filter(b => ui.type === 'Leveling' ? /level/i.test(b.type) : !/level/i.test(b.type));
   if (ui.src !== 'all') list = list.filter(b => b.src === ui.src);
@@ -268,44 +270,66 @@ PAGES.build = async main => {
 };
 
 const SLOT_KEYS = ['LMB', 'RMB', '1', '2', '3', '4'];
+const STOPW = new Set(['barb', 'barbarian', 'druid', 'necro', 'necromancer', 'rogue', 'sorc', 'sorcerer', 'spiritborn', 'paladin', 'pala', 'warlock', 'build', 'guide', 'endgame', 'leveling', 'the', 'of', 'and', 'season', 'starter', 'pushing', 'speedfarm']);
+const kw = t => String(t || '').toLowerCase().match(/[a-z0-9]+/g)?.filter(w => w.length > 2 && !STOPW.has(w)) || [];
+function similarMaxroll(b) {
+  const words = new Set(kw(b.title));
+  if (!words.size) return null;
+  let best = null, bestN = 0;
+  for (const x of S.ui.build.all || []) {
+    if (x.src !== 'Maxroll' || !x.profile || x.cls !== b.cls) continue;
+    if (/level/i.test(x.type) !== /level/i.test(b.type) && /level/i.test(b.type)) continue;
+    const n = kw(x.title).filter(w => words.has(w)).length;
+    if (n > bestN) { best = x; bestN = n; }
+  }
+  return best;
+}
 async function showBuild(b) {
   const el = $('#bdet'), ui = S.ui.build;
   const head = `<div class="row" style="align-items:flex-start">${tierBadge(b.tier)}<div style="flex:1"><h2 class="title">${esc(b.title)}</h2><div class="row wrap" style="gap:6px;margin-top:6px"><span class="badge src-${b.src}">${b.src}</span><span class="badge ${/level/i.test(b.type) ? 'lv' : 'eg'}">${esc(b.type)}</span>${b.author ? `<span class="muted" style="font-size:12.5px">di ${esc(b.author)}</span>` : ''}${b.updated ? `<span class="muted" style="font-size:12.5px">· aggiornata ${dateLbl(b.updated)}</span>` : ''}</div></div><button class="btn" id="bopen">${IC.ext} Apri guida</button></div>
     ${b.tier || b.info ? `<div class="robinfo"><b>Rob2628:</b> ${b.tier ? `tier ${esc(b.tier)}${b.tierNote ? ' (' + esc(b.tierNote) + ')' : ''}` : ''}${b.info ? ' · ' + esc(b.info) : ''}</div>` : ''}`;
-  if (!b.profile) {
-    el.innerHTML = head + `${b.desc ? `<p class="muted">${esc(b.desc)}</p>` : ''}<div class="empty" style="padding:30px">${IC.doc}<span>${b.src === 'Maxroll' ? 'Planner di questa guida non ancora letto dal server.' : `I dettagli di questa build sono su ${esc(b.src)}: aprila con "Apri guida".`}</span></div>`;
-    $('#bopen').onclick = () => openLink(b.url);
+  const bindOpen = () => { const o = $('#bopen'); if (o) o.onclick = () => openGuide(b.url); };
+  let p = null, note = '';
+  el.innerHTML = head + `<div class="skel" style="height:260px;margin-top:16px"></div>`;
+  bindOpen();
+  try {
+    if (b.profile) p = await getPlanner(b.profile);
+    else if (b.src === 'Mobalytics') p = await (plannerCache['m:' + b.url] ||= api('/api/mobabuild?u=' + encodeURIComponent(b.url)).catch(e => { delete plannerCache['m:' + b.url]; throw e; }));
+    else {
+      const sim = similarMaxroll(b);
+      if (sim) { p = await getPlanner(sim.profile); note = `D4Builds tiene i dettagli delle build in un archivio non leggibile dall'app: qui sotto vedi la guida Maxroll più simile, <b>${esc(sim.title)}</b>. Per la versione esatta usa “Apri guida”.`; }
+    }
+  } catch (e) { note = 'Dettagli non disponibili: ' + esc(e.message); }
+  if (!p || !p.variants?.length) {
+    el.innerHTML = head + `${b.desc ? `<p class="muted">${esc(b.desc)}</p>` : ''}<div class="empty" style="padding:30px">${IC.doc}<span>${note || (b.src === 'D4Builds' ? 'D4Builds tiene i dettagli delle build in un archivio non leggibile dall\'app e non ho trovato una guida Maxroll simile.' : 'Dettagli non disponibili.')}<br>“Apri guida” la apre in una finestra di Hellrise.</span></div>`;
+    bindOpen();
     return;
   }
-  el.innerHTML = head + `<div class="skel" style="height:260px;margin-top:16px"></div>`;
-  $('#bopen').onclick = () => openLink(b.url);
-  let p;
-  try { p = await getPlanner(b.profile); } catch (e) { el.innerHTML = head + `<div class="empty">${IC.warn}<span>Planner non disponibile: ${esc(e.message)}</span></div>`; $('#bopen').onclick = () => openLink(b.url); return; }
   if (ui.variantName) { const i = p.variants.findIndex(v => v.name.toLowerCase().includes(ui.variantName)); if (i >= 0) ui.variant = i; ui.variantName = null; }
   if (!p.variants[ui.variant]) ui.variant = 0;
   const v = p.variants[ui.variant] || { skills: [], gear: [] };
   const filters = p.filters || [];
-  el.innerHTML = head + `
-    <div class="vtabs seg">${p.variants.map((x, i) => `<button data-v="${i}" class="${i === ui.variant ? 'on' : ''}">${esc(x.name)}</button>`).join('')}</div>
-    <div class="lbl" style="margin-bottom:8px">Barra delle abilità</div>
-    <div class="skills">${v.skills.map((s, i) => `<div class="skill"><span class="key">${SLOT_KEYS[i] || ''}</span><b>${esc(nm(s.name, s.en))}</b></div>`).join('')}</div>
+  el.innerHTML = head + (note ? `<div class="robinfo" style="background:rgba(120,160,255,.07);border-color:rgba(120,160,255,.2)">${note}</div>` : '') + `
+    ${p.variants.length > 1 ? `<div class="vtabs seg">${p.variants.map((x, i) => `<button data-v="${i}" class="${i === ui.variant ? 'on' : ''}">${esc(x.name)}</button>`).join('')}</div>` : '<div style="height:16px"></div>'}
+    ${v.skills?.length ? `<div class="lbl" style="margin-bottom:8px">Barra delle abilità</div>
+    <div class="skills">${v.skills.map((s, i) => `<div class="skill"><span class="key">${SLOT_KEYS[i] || ''}</span><b>${esc(nm(s.name, s.en))}</b></div>`).join('')}</div>` : ''}
     <div class="lbl" style="margin-bottom:8px">Equipaggiamento</div>
-    <div class="gear">${v.gear.map(g => `<div class="gi ${g.kind}"><span class="ty">${esc(nm(g.type, g.typeEn) || 'Oggetto')}</span><b>${esc(nm(g.name, g.en))}</b>${g.aspect ? `<small>${esc(nm(g.aspect, g.aspectEn))}</small>` : ''}${sub(g.name, g.en) ? `<small class="muted">${esc(sub(g.name, g.en))}</small>` : ''}${g.sockets?.length ? `<div class="sock">${g.sockets.map(s => { const [i, e] = s.split('|'); return `<span>${esc(nm(i, e))}</span>`; }).join('')}</div>` : ''}</div>`).join('')}</div>
+    <div class="gear">${(v.gear || []).map(g => `<div class="gi ${g.kind}"><span class="ty">${esc(nm(g.type, g.typeEn) || 'Oggetto')}</span><b>${esc(nm(g.name, g.en))}</b>${g.aspect ? `<small>${esc(nm(g.aspect, g.aspectEn))}</small>` : ''}${sub(g.name, g.en) ? `<small class="muted">${esc(sub(g.name, g.en))}</small>` : ''}${g.sockets?.length ? `<div class="sock">${g.sockets.map(s => { const [i, e] = s.split('|'); return `<span>${esc(nm(i, e))}</span>`; }).join('')}</div>` : ''}</div>`).join('')}</div>
     ${filters.length ? `<div class="lbl" style="margin:20px 0 8px">Filtri loot · da importare in gioco</div><div class="grid" style="gap:8px">${filters.map((f, i) => `<div class="filter"><b>${esc(f.name)}</b><button class="btn sm" data-f="${i}">${IC.copy} Copia codice</button></div>`).join('')}</div>` : ''}
     ${v.paragon?.length ? `<div class="row" style="margin:22px 0 4px"><div class="lbl">Paragon</div><span class="sp"></span><div class="seg" id="pstep">${v.paragon.map((st, i) => `<button data-s="${i}" class="${i === (ui.pstep || 0) ? 'on' : ''}">${esc(st.name || 'Fase ' + (i + 1))}</button>`).join('')}</div></div>${PLEGEND}<div class="pboards" id="pboards"></div>` : ''}
-    <div class="row" style="margin-top:20px;gap:8px;flex-wrap:wrap"><button class="btn pri" id="mkmacro">${IC.keyb} Suggerisci profilo macro</button>${v.paragon?.length ? `<button class="btn" id="toov">Paragon nell'overlay in gioco</button>` : ''}<button class="btn ghost" id="planner">${IC.ext} Planner Maxroll</button></div>`;
+    <div class="row" style="margin-top:20px;gap:8px;flex-wrap:wrap">${v.skills?.length ? `<button class="btn pri" id="mkmacro">${IC.keyb} Suggerisci profilo macro</button>` : ''}${v.paragon?.length ? `<button class="btn" id="toov">Paragon nell'overlay in gioco</button>` : ''}${p.id ? `<button class="btn ghost" id="planner">${IC.ext} Planner Maxroll</button>` : ''}</div>`;
   if (v.paragon?.length) {
     if (!v.paragon[ui.pstep || 0]) ui.pstep = 0;
     const drawSteps = () => { const st = v.paragon[ui.pstep || 0]; $('#pboards').innerHTML = st.boards.map((bd, i) => boardCard(bd, i)).join(''); $$('#pboards canvas').forEach((c, i) => drawBoard(c, st.boards[i])); };
     drawSteps();
     $$('#pstep button', el).forEach(x => x.onclick = () => { ui.pstep = +x.dataset.s; $$('#pstep button').forEach(y => y.classList.toggle('on', y === x)); drawSteps(); });
-    $('#toov').onclick = async () => { const o = { ...(S.st.settings.overlay || {}), planner: p.id, title: b.title, variant: ui.variant, step: ui.pstep || 0, board: 0, enabled: true, paragon: { ...(S.st.settings.overlay?.paragon || {}), on: true } }; try { S.st.settings = await post('/api/settings', { overlay: o }); toast('Paragon impostato nell\'overlay: Ctrl+Shift+←/→ in gioco per cambiare tavola'); } catch (e) { toast(e.message); } };
+    $('#toov').onclick = async () => { const o = { ...(S.st.settings.overlay || {}), planner: p.id, title: b.title, variant: ui.variant, step: ui.pstep || 0, board: 0, enabled: true, paragon: { ...(S.st.settings.overlay?.paragon || {}), on: true } }; try { S.st.settings = await post('/api/settings', { overlay: o }); toast('Paragon impostato nell\'overlay'); } catch (e) { toast(e.message); } };
   }
   $$('.vtabs button', el).forEach(x => x.onclick = () => { ui.variant = +x.dataset.v; showBuild(b); });
   $$('[data-f]', el).forEach(x => x.onclick = () => copy(filters[+x.dataset.f].code, 'Codice del filtro'));
-  $('#bopen').onclick = () => openLink(b.url);
-  $('#planner').onclick = () => openLink(p.url);
-  $('#mkmacro').onclick = () => { S.ui.macroDraft = draftFromBuild(b, p, v); location.hash = '#/macro'; };
+  bindOpen();
+  $('#planner')?.addEventListener('click', () => openGuide(p.url));
+  $('#mkmacro')?.addEventListener('click', () => { S.ui.macroDraft = draftFromBuild(b, p, v); location.hash = '#/macro'; });
 }
 
 // ---------------------------------------------------------------- paragon
@@ -329,12 +353,13 @@ function drawBoard(c, bd) {
 
 // ---------------------------------------------------------------- chi droppa cosa
 PAGES.drop = async main => {
-  const ui = S.ui.drop ||= { q: '', cls: '', boss: '', fav: false };
+  const ui = S.ui.drop ||= { q: '', cls: '', boss: '', fav: false, cat: '' };
   main.innerHTML = `<div class="page">
     <div class="hdr"><div><h1 class="pt">Chi droppa cosa</h1><p class="sub" style="margin:0" id="dsrc">Boss da farmare per ogni unico · stagione ${S.season || '—'}</p></div></div>
     <div class="glass bigsearch">${IC.search}<input id="dq" placeholder="Cerca un unico, un mitico o un materiale (italiano o inglese)…" value="${esc(ui.q)}"><kbd>Esc</kbd></div>
     <div class="row wrap" style="gap:8px;margin-bottom:14px">
       <div class="seg" id="dcls"><button data-v="" class="${!ui.cls ? 'on' : ''}">Tutte le classi</button>${CLASSES.map(([c]) => `<button data-v="${c}" class="${ui.cls === c ? 'on' : ''}" title="${esc(clsName(c))}">${clsIcon(c).replace('<svg', '<svg width="16" height="16"')}</button>`).join('')}</div>
+      <div class="seg" id="dcat" style="flex-wrap:wrap">${[['', 'Tutti'], ...ITEMCATS].map(([v, l]) => `<button data-v="${v}" class="${(ui.cat || '') === v ? 'on' : ''}">${l}</button>`).join('')}</div>
       <label class="tog" style="padding:0 6px"><input type="checkbox" id="dfav" ${ui.fav ? 'checked' : ''}><i></i><b style="font-size:13px">Solo seguiti</b></label>
       <span class="sp"></span><span class="muted" id="dcount" style="font-size:12.5px"></span>
     </div>
@@ -351,11 +376,12 @@ PAGES.drop = async main => {
     if (ui.boss) items = items.filter(it => it.sources.some(s => s.boss === ui.boss));
     if (ui.fav) items = items.filter(it => favs.has(it.key || it.en));
     if (q) items = items.filter(it => norm(it.name).includes(q) || norm(it.en).includes(q) || norm(it.type).includes(q));
+    if (ui.cat === 'mitici') items = items.filter(it => it.mythic); else if (ui.cat) items = items.filter(it => (it.cat || 'altro') === ui.cat && !it.mythic);
     $('#dcount').textContent = `${items.length} oggetti`;
     const shown = items.slice(0, 150);
     const b = ui.boss ? bossById[ui.boss] : null;
     $('#dres').innerHTML = (b ? `<div class="glass card" style="margin-bottom:14px"><h2>${IC.boss.replace('<svg', '<svg width="18" height="18"')} ${esc(b.name)}<span class="sp"></span><button class="btn sm ghost" id="dclr">Tutti i boss ✕</button></h2>${b.location ? `<div class="muted" style="font-size:12.5px">${IC.pin.replace('<svg', '<svg width="13" height="13"')} ${esc(b.location)}</div>` : ''}${b.info?.length ? `<div class="info">${b.info.map(x => `<div>${esc(x)}</div>`).join('')}</div>` : ''}${b.summon?.length ? `<div class="row wrap" style="gap:6px;margin-top:8px"><span class="lbl">Evocazione e rune</span>${b.summon.map(x => `<span class="badge">${esc(x)}</span>`).join('')}</div>` : ''}</div>` : '') +
-      (shown.length ? `<div class="ditems">${shown.map((it, i) => itemCard(it, i, favs, bossById)).join('')}</div>` : `<div class="glass empty">${IC.search}<span>Nessun oggetto trovato${q ? ` per “${esc(ui.q)}”` : ''}</span></div>`) +
+      (shown.length ? groupByCat(shown).map(([cat, list]) => `<div class="lbl" style="margin:16px 2px 8px">${esc(catLabel(cat))} · ${list.length}</div><div class="ditems">${list.map((it, i) => itemCard(it, i, favs, bossById)).join('')}</div>`).join('') : `<div class="glass empty">${IC.search}<span>Nessun oggetto trovato${q ? ` per “${esc(ui.q)}”` : ''}</span></div>`) +
       (items.length > shown.length ? `<div class="muted" style="text-align:center;margin-top:12px">…e altri ${items.length - shown.length}: affina la ricerca</div>` : '');
     $('#dclr')?.addEventListener('click', () => { ui.boss = ''; draw(); drawBosses(); });
     $$('.star', $('#dres')).forEach(s => s.onclick = async ev => { ev.stopPropagation(); const k = s.dataset.k; favs.has(k) ? favs.delete(k) : favs.add(k); s.classList.toggle('on', favs.has(k)); try { const st = await post('/api/settings', { favorites: [...favs] }); S.st.settings = st; } catch { } });
@@ -371,8 +397,16 @@ PAGES.drop = async main => {
   inp.onkeydown = e => { if (e.key === 'Escape') { inp.value = ''; ui.q = ''; draw(); } };
   $$('#dcls button').forEach(b => b.onclick = () => { ui.cls = b.dataset.v; $$('#dcls button').forEach(x => x.classList.toggle('on', x === b)); draw(); });
   $('#dfav').onchange = e => { ui.fav = e.target.checked; draw(); };
+  $$('#dcat button').forEach(b => b.onclick = () => { ui.cat = b.dataset.v; $$('#dcat button').forEach(x => x.classList.toggle('on', x === b)); draw(); });
   setTimeout(() => inp.focus(), 50);
 };
+const ITEMCATS = [['mitici', 'Mitici'], ['armi', 'Armi'], ['mano secondaria', 'Mano secondaria'], ['elmi', 'Elmi'], ['torso', 'Torso'], ['guanti', 'Guanti'], ['pantaloni', 'Pantaloni'], ['stivali', 'Stivali'], ['amuleti', 'Amuleti'], ['anelli', 'Anelli'], ['talismani', 'Talismani'], ['altro', 'Altro']];
+const catLabel = c => (ITEMCATS.find(x => x[0] === c) || [, 'Altro'])[1];
+function groupByCat(items) {
+  const g = {};
+  for (const it of items) { const c = it.mythic ? 'mitici' : (it.cat || 'altro'); (g[c] ||= []).push(it); }
+  return ITEMCATS.map(([c]) => [c, g[c]]).filter(x => x[1]?.length);
+}
 function norm(s) { return String(s || '').toLowerCase().normalize('NFD').replace(/[\u0300-\u036f]/g, '').replace(/[’'`]/g, "'"); }
 function itemCard(it, i, favs, bossById) {
   const k = it.key || it.en;

@@ -25,3 +25,7 @@ func hiddenCmd(n string, a ...string) *exec.Cmd { return exec.Command(n, a...) }
 
 func startOverlay()         {}
 func reloadOverlayParagon() {}
+
+func openGuideWindow(u string) {}
+
+func browserDump(u string) (string, error) { return "", fmt.Errorf("solo Windows") }

@@ -121,6 +121,7 @@ type LootItem struct {
 	Classes []string     `json:"classes,omitempty"`
 	Mythic  bool         `json:"mythic,omitempty"`
 	Mat     bool         `json:"mat,omitempty"` // materiale di evocazione / runa
+	Cat     string       `json:"cat"`           // tipologia: armi, elmi, torso, guanti, pantaloni, stivali, amuleti, anelli, talismani, altro
 	Sources []LootSource `json:"sources"`
 }
 
@@ -387,6 +388,10 @@ func buildLoot(v *SeasonView, s *seasonRaw) {
 					li.Type = d.Types[g.Type]
 				}
 				li.Mat = skipTypes[g.Type] || g.Magic < 2 && g.Type != ""
+				li.Cat = itemCat(g.Type, g.Key)
+			}
+			if li.Cat == "" {
+				li.Cat = "altro"
 			}
 			byKey[key] = li
 		}
@@ -512,4 +517,35 @@ func (m *classLists) UnmarshalJSON(b []byte) error {
 		*m = classLists{}
 	}
 	return nil
+}
+
+// tipologia di un oggetto dal suo tipo nei dati di gioco
+func itemCat(typ, key string) string {
+	t := strings.ToLower(typ + " " + key)
+	switch {
+	case strings.Contains(t, "talisman") || strings.Contains(t, "charm") || strings.Contains(t, "seal"):
+		return "talismani"
+	case strings.Contains(t, "helm"):
+		return "elmi"
+	case strings.Contains(t, "chest"):
+		return "torso"
+	case strings.Contains(t, "glove"):
+		return "guanti"
+	case strings.Contains(t, "legs") || strings.Contains(t, "pants"):
+		return "pantaloni"
+	case strings.Contains(t, "boots"):
+		return "stivali"
+	case strings.Contains(t, "amulet"):
+		return "amuleti"
+	case strings.Contains(t, "ring"):
+		return "anelli"
+	case strings.Contains(t, "shield") || strings.Contains(t, "focus") || strings.Contains(t, "totem") || strings.Contains(t, "offhand") || strings.Contains(t, "tome"):
+		return "mano secondaria"
+	}
+	for _, w := range []string{"axe", "sword", "mace", "polearm", "bow", "crossbow", "staff", "wand", "dagger", "scythe", "glaive", "quarterstaff", "flail", "1h", "2h", "weapon"} {
+		if strings.Contains(t, w) {
+			return "armi"
+		}
+	}
+	return "altro"
 }

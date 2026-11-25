@@ -51,15 +51,21 @@ func mobaGet(u string) (string, error) {
 	req.Header.Set("Accept", "text/html,application/xhtml+xml")
 	req.Header.Set("Accept-Language", "en-US,en;q=0.9")
 	resp, err := (&http.Client{Timeout: 40 * time.Second}).Do(req)
-	if err != nil {
-		return "", err
+	if err == nil {
+		defer resp.Body.Close()
+		b, rerr := io.ReadAll(resp.Body)
+		if resp.StatusCode == 200 && rerr == nil {
+			return string(b), nil
+		}
+		err = &httpErr{resp.StatusCode}
 	}
-	defer resp.Body.Close()
-	b, err := io.ReadAll(resp.Body)
-	if resp.StatusCode != 200 {
-		return "", &httpErr{resp.StatusCode}
+	// Mobalytics blocca i programmi che non sono un browser: la pagina la legge Edge, nascosto
+	if page, e2 := browserDump(u); e2 == nil && strings.Contains(page, "__PRELOADED_STATE__") {
+		return page, nil
+	} else if e2 != nil {
+		log.Printf("mobalytics: anche con Edge: %v", e2)
 	}
-	return string(b), err
+	return "", err
 }
 
 type httpErr struct{ code int }
@@ -272,7 +278,7 @@ func mobaLoop() {
 	moba.Lock()
 	moba.c = c
 	moba.Unlock()
-	time.Sleep(45 * time.Second)
+	time.Sleep(8 * time.Second)
 	for {
 		moba.Lock()
 		age := time.Since(time.Unix(moba.c.At, 0))
@@ -288,4 +294,202 @@ func mobaSnapshot() mobaCache {
 	moba.Lock()
 	defer moba.Unlock()
 	return moba.c
+}
+
+// ---------- dettaglio di una build Mobalytics (dati già presenti nella pagina) ----------
+
+var mobaDetailCache = struct {
+	sync.Mutex
+	m map[string]*PBuild
+}{m: map[string]*PBuild{}}
+
+var mobaSlotNames = map[string][2]string{
+	"helm": {"Elmo", "Helm"}, "chest-armor": {"Torso", "Chest Armor"}, "gloves": {"Guanti", "Gloves"}, "pants": {"Pantaloni", "Pants"},
+	"boots": {"Stivali", "Boots"}, "amulet": {"Amuleto", "Amulet"}, "ring-1": {"Anello", "Ring"}, "ring-2": {"Anello", "Ring"},
+	"weapon": {"Arma", "Weapon"}, "offhand": {"Mano secondaria", "Offhand"}, "bludgeoning-weapon": {"Arma contundente", "Bludgeoning Weapon"},
+	"slashing-weapon": {"Arma da taglio", "Slashing Weapon"}, "dual-wield-weapon-1": {"Arma (mano 1)", "Dual-Wield Weapon 1"},
+	"dual-wield-weapon-2": {"Arma (mano 2)", "Dual-Wield Weapon 2"}, "ranged-weapon": {"Arma a distanza", "Ranged Weapon"},
+}
+
+func mobaBuildDetail(u string) (*PBuild, error) {
+	if !strings.HasPrefix(u, "https://mobalytics.gg/diablo-4/") {
+		return nil, &httpErr{400}
+	}
+	mobaDetailCache.Lock()
+	if b := mobaDetailCache.m[u]; b != nil {
+		mobaDetailCache.Unlock()
+		return b, nil
+	}
+	mobaDetailCache.Unlock()
+	page, err := mobaGet(u)
+	if err != nil {
+		return nil, err
+	}
+	i := strings.Index(page, "window.__PRELOADED_STATE__=")
+	if i < 0 {
+		return nil, &httpErr{422}
+	}
+	i += len("window.__PRELOADED_STATE__=")
+	end := strings.Index(page[i:], "</script>")
+	var st any
+	if end < 0 || json.Unmarshal([]byte(strings.TrimSuffix(strings.TrimSpace(page[i:i+end]), ";")), &st) != nil {
+		return nil, &httpErr{422}
+	}
+	// cerca il documento con le varianti della build
+	var doc map[string]any
+	var find func(o any, d int)
+	find = func(o any, d int) {
+		if doc != nil || d > 40 {
+			return
+		}
+		switch v := o.(type) {
+		case map[string]any:
+			if bv, ok := v["buildVariants"].(map[string]any); ok {
+				if _, ok := bv["values"].([]any); ok {
+					doc = v
+					return
+				}
+			}
+			for _, x := range v {
+				find(x, d+1)
+			}
+		case []any:
+			for _, x := range v {
+				find(x, d+1)
+			}
+		}
+	}
+	find(st, 0)
+	if doc == nil {
+		return nil, &httpErr{404}
+	}
+	str := func(m map[string]any, k string) string { s, _ := m[k].(string); return s }
+	gdd := getGD()
+	enSkill := map[string]string{}
+	if gdd != nil {
+		for _, s := range gdd.Skills {
+			if s[1] != "" {
+				enSkill[strings.ToLower(s[1])] = s[0]
+			}
+		}
+	}
+	out := &PBuild{Name: html.UnescapeString(str(doc, "name")), URL: u}
+	vals, _ := doc["buildVariants"].(map[string]any)["values"].([]any)
+	for vi, vv := range vals {
+		v, _ := vv.(map[string]any)
+		if v == nil {
+			continue
+		}
+		pv := PVariant{Name: "Variante " + itoa(vi+1)}
+		if t := str(v, "title"); t != "" {
+			pv.Name = t
+		}
+		if as, ok := v["assignedSkills"].(map[string]any); ok {
+			skills, _ := as["skills"].([]any)
+			type ps struct {
+				pos int
+				s   PSkill
+			}
+			var list []ps
+			for _, x := range skills {
+				m, _ := x.(map[string]any)
+				sk, _ := m["skill"].(map[string]any)
+				if sk == nil {
+					continue
+				}
+				en := str(sk, "name")
+				it := enSkill[strings.ToLower(en)]
+				if it == "" {
+					it = en
+				}
+				pos, _ := m["position"].(float64)
+				list = append(list, ps{int(pos), PSkill{Key: str(sk, "slug"), Name: it, En: en}})
+			}
+			for a := 0; a < len(list); a++ {
+				for b := a + 1; b < len(list); b++ {
+					if list[b].pos < list[a].pos {
+						list[a], list[b] = list[b], list[a]
+					}
+				}
+			}
+			for _, x := range list {
+				pv.Skills = append(pv.Skills, x.s)
+			}
+		}
+		if gb, ok := v["genericBuilder"].(map[string]any); ok {
+			slots, _ := gb["slots"].([]any)
+			var talismans []PGear
+			for _, x := range slots {
+				m, _ := x.(map[string]any)
+				ge, _ := m["gameEntity"].(map[string]any)
+				if ge == nil {
+					continue
+				}
+				slot := str(m, "gameSlotSlug")
+				for _, k := range []string{"slot", "slotSlug", "slotId", "id"} {
+					if slot == "" {
+						slot = str(m, k)
+					}
+				}
+				en := html.UnescapeString(str(ge, "title"))
+				it, _ := itName(en)
+				typ := str(ge, "type")
+				g := PGear{Name: it, En: en, Kind: "other"}
+				if sn, ok := mobaSlotNames[slot]; ok {
+					g.Type, g.TypeEn = sn[0], sn[1]
+				}
+				switch typ {
+				case "uniqueItems":
+					g.Kind = "unique"
+					if e, ok := ge["entity"].(map[string]any); ok && e["mythic"] == true {
+						g.Kind = "mythic"
+					}
+				case "aspects":
+					g.Kind = "legendary"
+				case "charms", "seals":
+					g.Kind, g.Type, g.TypeEn = "talisman", "Talismano", "Talisman"
+					if typ == "seals" {
+						g.Type, g.TypeEn = "Sigillo", "Seal"
+					}
+				case "triadPowers":
+					g.Kind, g.Type, g.TypeEn = "other", "Potere stagionale", "Seasonal power"
+				}
+				if mods, ok := ge["modifiers"].(map[string]any); ok {
+					socks, _ := mods["socketStats"].([]any)
+					for _, s := range socks {
+						if sm, ok := s.(map[string]any); ok {
+							name := slugWords(str(sm, "slug"))
+							if it2, gi := itName(name); gi != nil {
+								name = it2 + "|" + gi.En
+							}
+							g.Sockets = append(g.Sockets, name)
+						}
+					}
+				}
+				if g.Kind == "talisman" || typ == "triadPowers" {
+					talismans = append(talismans, g)
+				} else {
+					pv.Gear = append(pv.Gear, g)
+				}
+			}
+			pv.Gear = append(pv.Gear, talismans...)
+		}
+		out.Variants = append(out.Variants, pv)
+	}
+	mobaDetailCache.Lock()
+	mobaDetailCache.m[u] = out
+	mobaDetailCache.Unlock()
+	return out, nil
+}
+
+// "splinter-of-the-black-soulstone" → "Splinter of the Black Soulstone"
+func slugWords(slug string) string {
+	parts := strings.Split(slug, "-")
+	for i, p := range parts {
+		if p == "" || (i > 0 && (p == "of" || p == "the" || p == "and")) {
+			continue
+		}
+		parts[i] = strings.ToUpper(p[:1]) + p[1:]
+	}
+	return strings.Join(parts, " ")
 }
