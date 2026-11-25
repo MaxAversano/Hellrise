@@ -212,174 +212,117 @@ type BoardDetect struct {
 
 // cerca nella schermata (scala di grigi) una griglia regolare di caselle e la tavola che combacia meglio.
 // raw: caselle della tavola senza rotazione ('0' = vuota); bw: lato della tavola.
+var detDebug func(P, bx, by float64, nx, ny int, pres []bool)
+
+// griglia di caselle trovata sullo schermo
+type PGrid struct {
+	P, X, Y float64
+	NX, NY  int
+	Pres    []bool
+}
+
 func detectBoard(g []float64, w, h int, raw string, bw int, minP, maxP int) BoardDetect {
-	var d BoardDetect
+	var best BoardDetect
 	if len(g) != w*h || w < 100 || h < 100 || bw <= 0 || len(raw) != bw*bw {
+		return best
+	}
+	for _, gr := range findGrids(g, w, h, minP, maxP) {
+		if x := matchBoard(gr, raw, bw); x.OK && (!best.OK || x.Score > best.Score) {
+			best = x
+		} else if !best.OK && x.Score > best.Score {
+			best.Score = x.Score
+		}
+	}
+	return refineDetect(g, w, h, best, raw, bw)
+}
+
+// la tavola (in ognuna delle 4 rotazioni) che combacia meglio con le caselle piene della griglia.
+// Basta vederne una parte (chi zooma vede solo metà tavola).
+func matchBoard(gr PGrid, raw string, bw int) BoardDetect {
+	var d BoardDetect
+	P, nx, ny, pres := gr.P, gr.NX, gr.NY, gr.Pres
+	if P == 0 || nx < 4 || ny < 4 || len(raw) != bw*bw {
 		return d
 	}
-	// 1) passo della griglia dai bordi verticali e orizzontali
-	cols := make([]float64, w-1)
-	rows := make([]float64, h-1)
-	for y := 0; y < h-1; y++ {
-		o := y * w
-		for x := 0; x < w-1; x++ {
-			cols[x] += absf(g[o+x+1] - g[o+x])
-			rows[y] += absf(g[o+w+x] - g[o+x])
-		}
+	if detDebug != nil {
+		detDebug(P, gr.X, gr.Y, nx, ny, pres)
 	}
-	px, rx := dominantPeriod(cols, minP, maxP)
-	py, ry := dominantPeriod(rows, minP, maxP)
-	// se i due assi non concordano, cerca nell'altro asse attorno al periodo più forte
-	if px > 0 && py > 0 && absf(float64(px-py)) > 0.12*float64(px) {
-		if rx >= ry {
-			if q, rq := dominantPeriod(rows, px-3, px+3); q > 0 && rq > 0.2 {
-				py, ry = q, maxf(rq, 0.25)
-			}
-		} else if q, rq := dominantPeriod(cols, py-3, py+3); q > 0 && rq > 0.2 {
-			px, rx = q, maxf(rq, 0.25)
-		}
-	}
-	if px == 0 || py == 0 || rx < 0.25 || ry < 0.25 || absf(float64(px-py)) > 0.12*float64(px) {
-		return d
-	}
-	P := float64(px+py) / 2
-	// 2) fase: le righe/colonne più scure tra una casella e l'altra
-	phase := func(prof []float64) float64 {
-		n := int(P + 0.5)
-		best, bestV := 0, 1e18
-		for p := 0; p < n; p++ {
-			var s float64
-			c := 0
-			for x := float64(p); int(x) < len(prof); x += P {
-				s += prof[int(x)]
-				c++
-			}
-			if c > 0 && s/float64(c) < bestV {
-				best, bestV = p, s/float64(c)
-			}
-		}
-		return float64(best)
-	}
-	colMean := make([]float64, w)
-	rowMean := make([]float64, h)
-	for y := 0; y < h; y++ {
-		for x := 0; x < w; x++ {
-			v := g[y*w+x]
-			colMean[x] += v
-			rowMean[y] += v
-		}
-	}
-	bx, by := phase(colMean), phase(rowMean)
-	nx, ny := int((float64(w)-bx)/P), int((float64(h)-by)/P)
-	if nx < 6 || ny < 6 {
-		return d
-	}
-	// 3) presenza di un nodo in ogni casella (energia dei bordi nella parte centrale)
-	E := make([]float64, nx*ny)
-	vals := make([]float64, 0, nx*ny)
+	// somme cumulate delle caselle piene, per contare quelle dentro un rettangolo
+	W := nx + 1
+	cum := make([]int, (nx+1)*(ny+1))
 	for j := 0; j < ny; j++ {
 		for i := 0; i < nx; i++ {
-			x0, y0 := int(bx+float64(i)*P+P*0.22), int(by+float64(j)*P+P*0.22)
-			x1, y1 := int(bx+float64(i)*P+P*0.78), int(by+float64(j)*P+P*0.78)
-			var s float64
-			c := 0
-			for y := y0; y < y1 && y < h-1; y++ {
-				for x := x0; x < x1 && x < w-1; x++ {
-					s += absf(g[y*w+x+1]-g[y*w+x]) + absf(g[(y+1)*w+x]-g[y*w+x])
-					c++
-				}
+			v := 0
+			if pres[j*nx+i] {
+				v = 1
 			}
-			if c > 0 {
-				E[j*nx+i] = s / float64(c)
-			}
-			vals = append(vals, E[j*nx+i])
+			cum[(j+1)*W+i+1] = cum[j*W+i+1] + cum[(j+1)*W+i] - cum[j*W+i] + v
 		}
 	}
-	// soglia a due gruppi (k-means a 2)
-	lo, hi := 1e18, -1e18
-	for _, v := range vals {
-		lo, hi = minf(lo, v), maxf(hi, v)
-	}
-	if hi-lo < 1 {
-		return d
-	}
-	thr := (lo + hi) / 2
-	for it := 0; it < 12; it++ {
-		var a, b float64
-		var na, nb int
-		for _, v := range vals {
-			if v > thr {
-				a += v
-				na++
-			} else {
-				b += v
-				nb++
-			}
+	count := func(x0, y0, x1, y1 int) int {
+		x0, y0 = max(x0, 0), max(y0, 0)
+		x1, y1 = min(x1, nx), min(y1, ny)
+		if x1 <= x0 || y1 <= y0 {
+			return 0
 		}
-		if na == 0 || nb == 0 {
-			break
-		}
-		thr = (a/float64(na) + b/float64(nb)) / 2
+		return cum[y1*W+x1] - cum[y0*W+x1] - cum[y1*W+x0] + cum[y0*W+x0]
 	}
-	pres := make([]bool, nx*ny)
-	for i, v := range E {
-		pres[i] = v > thr
-	}
-	// 4) la tavola (in ognuna delle 4 rotazioni) che combacia meglio con le caselle piene
 	bestScore, bestR, bestDX, bestDY := -1e9, 0, 0, 0
 	for r := 0; r < 4; r++ {
 		m := rotateGrid(raw, bw, r)
-		total := 0
+		var nodes [][2]int
+		minI, maxI, minJ, maxJ := bw, -1, bw, -1
 		for i := 0; i < len(m); i++ {
 			if m[i] != '0' {
-				total++
+				x, y := i%bw, i/bw
+				nodes = append(nodes, [2]int{x, y})
+				minI, maxI, minJ, maxJ = min(minI, x), max(maxI, x), min(minJ, y), max(maxJ, y)
 			}
 		}
+		total := len(nodes)
 		if total == 0 {
 			continue
 		}
-		for dy := -3; dy <= ny-bw+3; dy++ {
-			for dx := -3; dx <= nx-bw+3; dx++ {
-				var s float64
-				inView := 0
-				for j := 0; j < bw; j++ {
-					yy := dy + j
-					if yy < 0 || yy >= ny {
+		// in ordine sparso, così le posizioni sbagliate si scartano subito
+		for i := range nodes {
+			j := (i*7919 + 13) % len(nodes)
+			nodes[i], nodes[j] = nodes[j], nodes[i]
+		}
+		maxMiss := int(0.14*float64(total)) + 1
+		for dy := -maxJ; dy < ny-minJ; dy++ {
+			for dx := -maxI; dx < nx-minI; dx++ {
+				inView, hits, miss := 0, 0, 0
+				for _, n := range nodes {
+					xx, yy := dx+n[0], dy+n[1]
+					if xx < 0 || yy < 0 || xx >= nx || yy >= ny {
 						continue
 					}
-					for i := 0; i < bw; i++ {
-						xx := dx + i
-						if xx < 0 || xx >= nx {
-							continue
-						}
-						p := pres[yy*nx+xx]
-						if m[j*bw+i] != '0' {
-							inView++
-							if p {
-								s++
-							} else {
-								s -= 0.6
-							}
-						} else if p {
-							s -= 0.4
-						}
+					inView++
+					if pres[yy*nx+xx] {
+						hits++
+					} else if miss++; miss > maxMiss {
+						break // troppi buchi: qui non può esserci la tavola
 					}
 				}
-				if float64(inView) < 0.7*float64(total) {
+				if miss > maxMiss {
 					continue
 				}
-				sc := s / float64(total)
+				if float64(inView) < 0.4*float64(total) || inView < 18 {
+					continue
+				}
+				extra := count(dx+minI, dy+minJ, dx+maxI+1, dy+maxJ+1) - hits // pieni dove la tavola è vuota
+				sc := (float64(hits) - 0.6*float64(inView-hits) - 0.4*float64(extra)) / float64(inView)
 				if sc > bestScore {
 					bestScore, bestR, bestDX, bestDY = sc, r, dx, dy
 				}
 			}
 		}
 	}
-	if bestScore < 0.55 {
+	if bestScore < 0.8 {
 		d.Score = bestScore
 		return d
 	}
-	return BoardDetect{OK: true, X: bx + float64(bestDX)*P, Y: by + float64(bestDY)*P, Cell: P, Rot: bestR, Score: bestScore}
+	return BoardDetect{OK: true, X: gr.X + float64(bestDX)*P, Y: gr.Y + float64(bestDY)*P, Cell: P, Rot: bestR, Score: bestScore}
 }
 
 func minf(a, b float64) float64 {
@@ -496,4 +439,328 @@ func d4bParagonBuild(u string) (*PBuild, error) {
 		out.Variants = append(out.Variants, pv)
 	}
 	return out, nil
+}
+
+// contrasto (deviazione standard) di ogni casella, con le immagini integrali
+type integ struct {
+	w, h  int
+	s, s2 []float64
+}
+
+func newInteg(g []float64, w, h int) *integ {
+	in := &integ{w: w, h: h, s: make([]float64, (w+1)*(h+1)), s2: make([]float64, (w+1)*(h+1))}
+	for y := 0; y < h; y++ {
+		var r, r2 float64
+		for x := 0; x < w; x++ {
+			v := g[y*w+x]
+			r += v
+			r2 += v * v
+			i := (y+1)*(w+1) + x + 1
+			in.s[i] = in.s[i-(w+1)] + r
+			in.s2[i] = in.s2[i-(w+1)] + r2
+		}
+	}
+	return in
+}
+
+func (in *integ) std(x0, y0, x1, y1 int) float64 {
+	if x0 < 0 {
+		x0 = 0
+	}
+	if y0 < 0 {
+		y0 = 0
+	}
+	if x1 > in.w {
+		x1 = in.w
+	}
+	if y1 > in.h {
+		y1 = in.h
+	}
+	n := float64((x1 - x0) * (y1 - y0))
+	if n <= 0 {
+		return 0
+	}
+	W := in.w + 1
+	a := in.s[y1*W+x1] - in.s[y0*W+x1] - in.s[y1*W+x0] + in.s[y0*W+x0]
+	b := in.s2[y1*W+x1] - in.s2[y0*W+x1] - in.s2[y1*W+x0] + in.s2[y0*W+x0]
+	v := b/n - (a/n)*(a/n)
+	if v < 0 {
+		return 0
+	}
+	return math.Sqrt(v)
+}
+
+// separazione in due gruppi (metodo di Otsu): quanto bene si dividono, e la soglia
+func otsu(v []float64) (float64, float64) {
+	if len(v) < 8 {
+		return 0, 0
+	}
+	sv := append([]float64(nil), v...)
+	sort.Float64s(sv)
+	n := float64(len(sv))
+	var tot, tot2 float64
+	for _, x := range sv {
+		tot += x
+		tot2 += x * x
+	}
+	mean := tot / n
+	varT := tot2/n - mean*mean
+	if varT <= 1e-9 {
+		return 0, 0
+	}
+	best, thr := 0.0, 0.0
+	var c float64
+	for i := 0; i < len(sv)-1; i++ {
+		c += sv[i]
+		w0 := float64(i+1) / n
+		m0 := c / float64(i+1)
+		m1 := (tot - c) / (n - float64(i+1))
+		bv := w0 * (1 - w0) * (m0 - m1) * (m0 - m1)
+		if bv > best {
+			best, thr = bv, (sv[i]+sv[i+1])/2
+		}
+	}
+	return best / varT, thr
+}
+
+func gridStds(in *integ, P, ox, oy float64) ([]float64, int, int) {
+	nx, ny := int((float64(in.w)-ox)/P), int((float64(in.h)-oy)/P)
+	if nx < 1 || ny < 1 {
+		return nil, 0, 0
+	}
+	out := make([]float64, nx*ny)
+	for j := 0; j < ny; j++ {
+		for i := 0; i < nx; i++ {
+			cx, cy := ox+float64(i)*P, oy+float64(j)*P
+			out[j*nx+i] = in.std(int(cx+P*0.22), int(cy+P*0.22), int(cx+P*0.78), int(cy+P*0.78))
+		}
+	}
+	return out, nx, ny
+}
+
+func findGrids(g []float64, w, h, minP, maxP int) []PGrid {
+	in := newInteg(g, w, h)
+	// candidati per il passo: picchi dell'autocorrelazione dei bordi e i loro multipli
+	cols := make([]float64, w-1)
+	rows := make([]float64, h-1)
+	for y := 0; y < h-1; y++ {
+		o := y * w
+		for x := 0; x < w-1; x++ {
+			cols[x] += absf(g[o+x+1] - g[o+x])
+			rows[y] += absf(g[o+w+x] - g[o+x])
+		}
+	}
+	cand := map[int]bool{}
+	for _, prof := range [][]float64{cols, rows} {
+		for _, l := range periodPeaks(prof, max(8, minP/2), maxP, 6) {
+			for k := 1; k <= 3 && k*l <= maxP; k++ {
+				if k*l >= minP {
+					cand[k*l] = true
+				}
+			}
+		}
+	}
+	try := func(P, ox, oy float64) float64 {
+		v, nx, ny := gridStds(in, P, ox, oy)
+		if nx < 4 || ny < 4 {
+			return 0
+		}
+		q, _ := otsu(v)
+		return q
+	}
+	// per ogni passo la fase migliore; quale passo sia giusto lo decide il confronto con le tavole
+	if len(cand) == 0 && maxP-minP <= 12 { // si segue una tavola già trovata: si prova il suo passo
+		cand[(minP+maxP)/2] = true
+	}
+	// passi quasi uguali: basta provarne uno
+	var cl []int
+	for c := range cand {
+		cl = append(cl, c)
+	}
+	sort.Ints(cl)
+	var uniq []int
+	for _, c := range cl {
+		if len(uniq) == 0 || float64(c) > float64(uniq[len(uniq)-1])*1.04 {
+			uniq = append(uniq, c)
+		}
+	}
+	var out []PGrid
+	for _, c := range uniq {
+		P := float64(c)
+		bq, box, boy := 0.0, 0.0, 0.0
+		step := math.Max(1, P/12)
+		for oy := 0.0; oy < P; oy += step {
+			for ox := 0.0; ox < P; ox += step {
+				if q := try(P, ox, oy); q > bq {
+					bq, box, boy = q, ox, oy
+				}
+			}
+		}
+		if bq < 0.6 {
+			continue
+		}
+		for dP := -0.9; dP <= 0.9; dP += 0.3 {
+			P2 := P + dP
+			for dy := -step; dy <= step; dy++ {
+				for dx := -step; dx <= step; dx++ {
+					ox, oy := math.Mod(box+dx+P2, P2), math.Mod(boy+dy+P2, P2)
+					if q := try(P2, ox, oy); q > bq {
+						bq, box, boy, P = q, ox, oy, P2
+					}
+				}
+			}
+		}
+		// la fase migliore può cadere a metà casella: si provano anche gli spostamenti di mezza casella
+		for _, sh := range [][2]float64{{0, 0}, {0.5, 0}, {0, 0.5}, {0.5, 0.5}} {
+			ox, oy := math.Mod(box+sh[0]*P, P), math.Mod(boy+sh[1]*P, P)
+			v, nx, ny := gridStds(in, P, ox, oy)
+			if nx < 4 || ny < 4 {
+				continue
+			}
+			_, thr := otsu(v)
+			pres := make([]bool, len(v))
+			np := 0
+			for i, x := range v {
+				pres[i] = x > thr
+				if pres[i] {
+					np++
+				}
+			}
+			if np < 18 || np > len(v)*7/10 {
+				continue
+			}
+			out = append(out, PGrid{P: P, X: ox, Y: oy, NX: nx, NY: ny, Pres: pres})
+		}
+	}
+	return out
+}
+
+// i picchi più alti dell'autocorrelazione di un profilo
+func periodPeaks(sig []float64, minL, maxL, k int) []int {
+	n := len(sig)
+	if maxL > n/2 {
+		maxL = n / 2
+	}
+	if maxL <= minL+1 {
+		return nil
+	}
+	mean := 0.0
+	for _, v := range sig {
+		mean += v
+	}
+	mean /= float64(n)
+	x := make([]float64, n)
+	var e0 float64
+	for i, v := range sig {
+		x[i] = v - mean
+		e0 += x[i] * x[i]
+	}
+	if e0 == 0 {
+		return nil
+	}
+	rs := make([]float64, maxL+2)
+	for l := minL; l <= maxL+1 && l < n; l++ {
+		var s float64
+		for i := 0; i+l < n; i++ {
+			s += x[i] * x[i+l]
+		}
+		rs[l] = s / e0 * float64(n) / float64(n-l)
+	}
+	type pk struct {
+		l int
+		r float64
+	}
+	var ps []pk
+	for l := minL + 1; l <= maxL; l++ {
+		if rs[l] > 0 && rs[l] >= rs[l-1] && rs[l] >= rs[l+1] {
+			ps = append(ps, pk{l, rs[l]})
+		}
+	}
+	sort.Slice(ps, func(a, b int) bool { return ps[a].r > ps[b].r })
+	var out []int
+	for i := 0; i < len(ps) && i < k; i++ {
+		out = append(out, ps[i].l)
+	}
+	return out
+}
+
+// rifinitura della posizione: il centro di ogni nodo è il baricentro dei bordi (anello e icona)
+// nella sua casella; si ricava la retta migliore per colonne e righe (posizione e passo)
+func refineDetect(g []float64, w, h int, d BoardDetect, raw string, bw int) BoardDetect {
+	if !d.OK {
+		return d
+	}
+	m := rotateGrid(raw, bw, d.Rot)
+	for it := 0; it < 3; it++ {
+		var sx, sxx, sxy, sy, n float64 // regressione: centro x = X + (i+0.5)*P
+		var ty, tyy, tyc, tc, tn float64
+		P := d.Cell
+		for idx := 0; idx < len(m); idx++ {
+			if m[idx] == '0' {
+				continue
+			}
+			i, j := idx%bw, idx/bw
+			x0, y0 := int(d.X+float64(i)*P), int(d.Y+float64(j)*P)
+			x1, y1 := int(d.X+float64(i+1)*P), int(d.Y+float64(j+1)*P)
+			if x0 < 1 || y0 < 1 || x1 >= w-1 || y1 >= h-1 {
+				continue
+			}
+			var ex, ey, es float64
+			for y := y0; y < y1; y++ {
+				for x := x0; x < x1; x++ {
+					e := absf(g[y*w+x+1]-g[y*w+x-1]) + absf(g[(y+1)*w+x]-g[(y-1)*w+x])
+					ex += e * float64(x)
+					ey += e * float64(y)
+					es += e
+				}
+			}
+			if es <= 0 {
+				continue
+			}
+			cx, cy := ex/es, ey/es
+			fi, fj := float64(i)+0.5, float64(j)+0.5
+			sx += fi
+			sxx += fi * fi
+			sxy += fi * cx
+			sy += cx
+			n++
+			ty += fj
+			tyy += fj * fj
+			tyc += fj * cy
+			tc += cy
+			tn++
+		}
+		if n < 10 {
+			return d
+		}
+		den := n*sxx - sx*sx
+		den2 := tn*tyy - ty*ty
+		if den <= 0 || den2 <= 0 {
+			return d
+		}
+		px := (n*sxy - sx*sy) / den
+		py := (tn*tyc - ty*tc) / den2
+		np := (px + py) / 2
+		if absf(np-d.Cell) > 0.08*d.Cell {
+			np = d.Cell
+		}
+		// posizione con il passo comune
+		var ax, ay float64
+		ax = (sy - np*sx) / n
+		ay = (tc - np*ty) / tn
+		d.X, d.Y, d.Cell = ax, ay, np
+	}
+	return d
+}
+
+func halfGray(g []float64, w, h int) ([]float64, int, int) {
+	w2, h2 := w/2, h/2
+	out := make([]float64, w2*h2)
+	for y := 0; y < h2; y++ {
+		for x := 0; x < w2; x++ {
+			i := 2*y*w + 2*x
+			out[y*w2+x] = (g[i] + g[i+1] + g[i+w] + g[i+w+1]) / 4
+		}
+	}
+	return out, w2, h2
 }

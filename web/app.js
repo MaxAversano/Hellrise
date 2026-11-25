@@ -1279,7 +1279,7 @@ PAGES.overlay = async main => {
     <div class="sgrid">
       <div class="glass card"><h2>Generale</h2>
         ${tg('enabled', 'Overlay attivo', 'Compare solo quando Diablo IV è in primo piano')}
-        ${tg('always', 'Mostralo anche fuori dal gioco', 'Utile per provarlo e sistemare le posizioni')}
+        ${tg('always', 'Mostralo anche fuori dal gioco', 'Utile per provarlo e sistemare le posizioni')}${tg('hideCapture', 'Nascondilo a OBS e alle registrazioni', 'Spento: l\'overlay si vede nelle catture dello schermo (OBS “Cattura schermo”)')}
         <label class="field"><span>Dimensione · <b id="scv">${Math.round((o.scale || 1) * 100)}%</b></span><input type="range" min="0.6" max="1.6" step="0.05" value="${o.scale || 1}" data-o="scale"></label>
         <label class="field"><span>Opacità · <b id="opv">${o.opacity || 92}%</b></span><input type="range" min="20" max="100" step="2" value="${o.opacity || 92}" data-o="opacity"></label>
         <label class="field"><span>Tieni premuto per spostare e bloccare i riquadri</span><select class="inp" data-o="moveKey">${MOVEKEYS.map(([v, l]) => `<option value="${v}" ${(o.moveKey || 0xA4) === v ? 'selected' : ''}>${l}</option>`).join('')}</select></label>

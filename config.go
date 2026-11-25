@@ -75,7 +75,8 @@ type OverlaySet struct {
 	Rotation  OWidget        `json:"rotation"` // riquadro con la rotazione delle abilità
 	RotTitle  string         `json:"rotTitle"`
 	RotLines  []string       `json:"rotLines"`
-	ParMin    bool           `json:"parMin"` // paragon chiuso a occhietto (Alt+Shift+P o clic sull'occhio)
+	ParMin    bool           `json:"parMin"`
+	HideCap   bool           `json:"hideCapture"` // nasconde l'overlay a OBS e alle registrazioni // paragon chiuso a occhietto (Alt+Shift+P o clic sull'occhio)
 }
 
 func defaultSettings() Settings {

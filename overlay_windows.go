@@ -94,6 +94,7 @@ var (
 	ovAlpha           int
 	ovLocks           = map[string]rect{}
 	ovEye             rect
+	ovLabel           rect
 )
 
 var (
@@ -280,7 +281,7 @@ func paintOverlay(hdc uintptr) {
 	if o.Timers.On {
 		hits["timers"] = drawTimers(mem, o, sc, k)
 	}
-	ovEye = rect{}
+	ovEye, ovLabel = rect{}, rect{}
 	if o.Paragon.On {
 		r := drawParagon(mem, o, sc, k)
 		hits["paragon"] = r
@@ -336,6 +337,15 @@ func paintOverlay(hdc uintptr) {
 	}
 	ovLocks = locks
 	ovHits = hits
+	ovDrawnMu.Lock()
+	ovDrawn = ovDrawn[:0]
+	for _, r := range hits {
+		if r.r > r.l {
+			ovDrawn = append(ovDrawn, r)
+		}
+	}
+	ovDrawn = append(ovDrawn, ovLabel)
+	ovDrawnMu.Unlock()
 	pBitBlt.Call(hdc, 0, 0, uintptr(ovW), uintptr(ovH), mem, 0, 0, srcCopy)
 	pSelectObject.Call(mem, old)
 	pDeleteObject.Call(bmp)
@@ -780,6 +790,7 @@ func drawParagonAligned(hdc uintptr, o OverlaySet, sc func(float64) int32, k flo
 		}
 		lw = sc(520)
 	}
+	ovLabel = rect{lx, ly, lx + lw, ly + lh}
 	ovRound(hdc, rect{lx, ly, lx + lw, ly + lh}, sc(12), cPanel, cBorder)
 	ovText(hdc, label, rect{lx + sc(10), ly, lx + lw - sc(10), ly + sc(28)}, cInk, ovFont(int(12*k), true), dtLeft|0x8000)
 	if warn != "" {
@@ -819,7 +830,15 @@ func lastDetect() (BoardDetect, bool) {
 
 func autoDetectLoop() {
 	for {
-		time.Sleep(1200 * time.Millisecond)
+		det.Lock()
+		locked := det.last.OK && time.Since(det.at) < 4*time.Second
+		lastP := det.last.Cell
+		det.Unlock()
+		if locked {
+			time.Sleep(900 * time.Millisecond) // tavola già trovata: si segue (veloce)
+		} else {
+			time.Sleep(2200 * time.Millisecond) // ricerca completa: più rada per non pesare sul gioco
+		}
 		o := getSettings().Overlay
 		if !o.Enabled || !o.Paragon.On || o.ParMin || o.Mode == "panel" || ovHideAll || !diabloForeground() {
 			continue
@@ -832,20 +851,38 @@ func autoDetectLoop() {
 		if g == nil {
 			continue
 		}
+		// i riquadri dell'overlay (se si vedono nella cattura) non devono confondere il riconoscimento
+		ovDrawnMu.Lock()
+		for _, r := range ovDrawn {
+			for y := max(int(r.t), 0); y < min(int(r.b), h); y++ {
+				for x := max(int(r.l), 0); x < min(int(r.r), w); x++ {
+					g[y*w+x] = 20
+				}
+			}
+		}
+		ovDrawnMu.Unlock()
 		f := 1.0
-		if w > 2200 { // 4K: metà risoluzione basta e va più veloce
+		if w > 1300 { // metà risoluzione basta e va molto più veloce
 			g, w, h = halfGray(g, w, h)
 			f = 2
 		}
-		minP, maxP := int(float64(h)/1080*14), int(float64(h)/1080*140)
-		// prova tutte le tavole della fase: capisce da solo quale hai aperto
+		minP, maxP := max(10, h*12/1080), h*140/1080
+		if locked {
+			minP, maxP = int(lastP/f*0.95), int(lastP/f*1.05+1)
+		}
+		grids := findGrids(g, w, h, minP, maxP)
+		// prova tutte le tavole della fase: capisce da solo quale hai aperto (anche solo in parte)
 		var d BoardDetect
 		bi := -1
 		for i, b := range cb.step.Boards {
-			x := detectBoard(g, w, h, b.RawCells, b.Width, minP, maxP)
-			if x.OK && (!d.OK || x.Score > d.Score) {
-				d, bi = x, i
+			for _, gr := range grids {
+				if x := matchBoard(gr, b.RawCells, b.Width); x.OK && (!d.OK || x.Score > d.Score) {
+					d, bi = x, i
+				}
 			}
+		}
+		if d.OK {
+			d = refineDetect(g, w, h, d, cb.step.Boards[bi].RawCells, cb.step.Boards[bi].Width)
 		}
 		d.Board = bi
 		det.Lock()
@@ -853,7 +890,7 @@ func autoDetectLoop() {
 			d.X, d.Y, d.Cell = d.X*f, d.Y*f, d.Cell*f
 			c := det.cand
 			same := c.OK && absf(c.Cell-d.Cell) < 0.05*d.Cell && absf(c.X-d.X) < d.Cell/3 && absf(c.Y-d.Y) < d.Cell/3 && c.Rot == d.Rot && c.Board == d.Board
-			if same || (det.last.OK && time.Since(det.at) < 3*time.Second) {
+			if same || d.Score >= 0.92 || (det.last.OK && time.Since(det.at) < 4*time.Second) {
 				det.last, det.at = d, time.Now()
 				if bi >= 0 && bi != o.Board { // la guida segue la tavola che hai aperto in gioco
 					go updateSettings(func(s *Settings) { s.Overlay.Board = bi })
@@ -867,17 +904,11 @@ func autoDetectLoop() {
 	}
 }
 
-func halfGray(g []float64, w, h int) ([]float64, int, int) {
-	w2, h2 := w/2, h/2
-	out := make([]float64, w2*h2)
-	for y := 0; y < h2; y++ {
-		for x := 0; x < w2; x++ {
-			i := 2*y*w + 2*x
-			out[y*w2+x] = (g[i] + g[i+1] + g[i+w] + g[i+w+1]) / 4
-		}
-	}
-	return out, w2, h2
-}
+// zone dove l'overlay ha disegnato i suoi riquadri (per toglierle dalla cattura)
+var (
+	ovDrawnMu sync.Mutex
+	ovDrawn   []rect
+)
 
 // ---------- rilevamento della grandezza delle caselle ----------
 
@@ -972,7 +1003,29 @@ func setClickable(on bool) {
 	pSetWindowLongPtr.Call(ovHwnd, ^uintptr(19), ex)
 }
 
+// l'overlay compare in OBS e nelle registrazioni, a meno che tu non scelga di nasconderlo
+var ovCapHidden = -1
+
+func applyCaptureAffinity() {
+	hide := 0
+	if getSettings().Overlay.HideCap {
+		hide = 1
+	}
+	if hide == ovCapHidden || ovHwnd == 0 {
+		return
+	}
+	ovCapHidden = hide
+	if p := u32.NewProc("SetWindowDisplayAffinity"); p.Find() == nil {
+		if hide == 1 {
+			p.Call(ovHwnd, 0x11) // WDA_EXCLUDEFROMCAPTURE
+		} else {
+			p.Call(ovHwnd, 0) // WDA_NONE
+		}
+	}
+}
+
 func overlayTick() {
+	applyCaptureAffinity()
 	o := getSettings().Overlay
 	fg := diabloForeground()
 	// trasparenza di tutto l'overlay
@@ -1180,10 +1233,7 @@ func startOverlay() {
 		return
 	}
 	pSetLayeredAttr.Call(ovHwnd, keyColor, 255, lwaColorKey|0x2)
-	// l'overlay non compare nelle catture dello schermo (così il riconoscimento vede solo il gioco)
-	if p := u32.NewProc("SetWindowDisplayAffinity"); p.Find() == nil {
-		p.Call(ovHwnd, 0x11) // WDA_EXCLUDEFROMCAPTURE
-	}
+	applyCaptureAffinity()
 	pSetTimer.Call(ovHwnd, 1, 100, 0)
 	go autoDetectLoop()
 	var m msgT
