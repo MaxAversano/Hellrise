@@ -44,6 +44,19 @@ if (isset($_GET['up'])) {
     echo 'pubblicato';
     exit;
 }
+// build D4Builds completa (tutte le schede): ?k=TOKEN&upload=full&id=<16 esadecimali>
+if (($_GET['upload'] ?? '') === 'full') {
+    $id = preg_replace('/[^0-9a-f]/', '', strtolower((string)($_GET['id'] ?? '')));
+    if (strlen($id) !== 16) { http_response_code(400); exit('id non valido'); }
+    $raw = file_get_contents('php://input');
+    if ($raw === false || strlen($raw) > 12 * 1048576 || !is_array(json_decode($raw, true))) { http_response_code(400); exit('JSON non valido'); }
+    $d = STORE . '/full';
+    if (!is_dir($d)) @mkdir($d, 0755, true);
+    file_put_contents($d . '/' . $id . '.json.gz.tmp', gzencode($raw, 6));
+    rename($d . '/' . $id . '.json.gz.tmp', $d . '/' . $id . '.json.gz');
+    echo 'ok';
+    exit;
+}
 // dati raccolti dall'app di Max (siti che bloccano il server): ?k=TOKEN&upload=d4bDetails&season=15
 if (isset($_GET['upload'])) {
     $ok = ['d4bDetails', 'mobaDetails', 'mobalytics', 'bossInfo'];

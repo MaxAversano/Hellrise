@@ -19,6 +19,15 @@ if ($what === 'season') {
     $f = STORE . '/' . season_file((int)($_GET['n'] ?? 0));
     if (!is_file($f)) { http_response_code(404); exit('stagione non disponibile'); }
     out_json(file_get_contents($f));
+} elseif ($what === 'full') {
+    $id = preg_replace('/[^0-9a-f]/', '', strtolower((string)($_GET['id'] ?? '')));
+    $f = STORE . '/full/' . $id . '.json.gz';
+    if (strlen($id) !== 16 || !is_file($f)) { http_response_code(404); exit('build non ancora raccolta'); }
+    header('Content-Type: application/json; charset=utf-8');
+    header('X-Updated: ' . filemtime($f));
+    if (strpos($_SERVER['HTTP_ACCEPT_ENCODING'] ?? '', 'gzip') !== false) { header('Content-Encoding: gzip'); readfile($f); }
+    else echo gzdecode(file_get_contents($f));
+    exit;
 } elseif ($what === 'patches') {
     out_json(is_file(STORE . '/patches.json') ? file_get_contents(STORE . '/patches.json') : '{}');
 } elseif ($what === 'events') {

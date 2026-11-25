@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"os"
 	"os/exec"
+	"time"
 )
 
 func openAppWindow(url string)                  { fmt.Println("Hellrise:", url) }
@@ -29,3 +30,7 @@ func reloadOverlayParagon() {}
 func openGuideWindow(u string) {}
 
 func browserDump(u string) (string, error) { return "", fmt.Errorf("solo Windows") }
+
+func browserRun(u, ready, start, poll string, timeout time.Duration) (string, error) {
+	return "", fmt.Errorf("solo Windows")
+}

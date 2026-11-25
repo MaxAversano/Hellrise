@@ -5,160 +5,247 @@ package main
 
 import (
 	"crypto/sha1"
+	_ "embed"
 	"encoding/hex"
-	"html"
+	"encoding/json"
+	"fmt"
 	"os"
 	"path/filepath"
-	"regexp"
 	"strings"
 	"sync"
 	"time"
 )
 
-var (
-	d4bNameRe  = regexp.MustCompile(`(?s)class="builder__gear__name\s*(builder__gear__name--(\w+))?\s*"[^>]*>(.*?)</div>`)
-	d4bSlotRe  = regexp.MustCompile(`(?s)class="builder__gear__slot"[^>]*>(.*?)</div>`)
-	d4bGemRe   = regexp.MustCompile(`(?s)class="builder__gem__icon"[^>]*>\s*<img[^>]*alt="([^"]*)"`)
-	d4bSkillRe = regexp.MustCompile(`(?s)class="build__skill__wrapper ([A-Za-z0-9]+)\s*"[^>]*>\s*<img[^>]*alt="([^"]*)"`)
-	d4bRuneRe  = regexp.MustCompile(`(?s)class="build__skill__name build__skill__name--rune[^"]*"[^>]*>(.*?)<`)
-	d4bVarRe   = regexp.MustCompile(`class="builder__variant__input"[^>]*value="([^"]*)"`)
-	d4bMu      sync.Mutex
-)
+var d4bMu sync.Mutex
 
 var slotIt = map[string]string{"Helm": "Elmo", "Chest Armor": "Torso", "Gloves": "Guanti", "Pants": "Pantaloni", "Boots": "Stivali",
 	"Amulet": "Amuleto", "Ring 1": "Anello 1", "Ring 2": "Anello 2", "Weapon": "Arma", "Offhand": "Mano secondaria",
 	"Bludgeoning Weapon": "Arma contundente", "Slashing Weapon": "Arma da taglio", "Dual-Wield Weapon 1": "Arma (mano 1)",
 	"Dual-Wield Weapon 2": "Arma (mano 2)", "Ranged Weapon": "Arma a distanza", "Focus": "Focus", "Totem": "Totem", "Shield": "Scudo"}
 
-func d4bBuildDetail(u string) (*PBuild, error) {
+//go:embed d4b_extract.js
+var d4bExtractJS string
+
+// Build D4Builds completa, com'è sul sito: tutte le schede (equipaggiamento e abilità, albero, paragon,
+// mercenari, piani di guerra, note) lette nel lettore nascosto, più i nomi italiani in "tr".
+type D4Full struct {
+	OK       int               `json:"ok"`
+	Err      string            `json:"err,omitempty"`
+	URL      string            `json:"url"`
+	At       int64             `json:"at"`
+	Head     map[string]string `json:"head"`
+	Variants []map[string]any  `json:"variants"`
+	Notes    any               `json:"notes"`
+	NotesT   string            `json:"notesTitle"`
+	Tr       map[string]string `json:"tr"`
+}
+
+func d4bFullRead(u string) (*D4Full, error) {
 	if !strings.HasPrefix(u, "https://d4builds.gg/builds/") {
 		return nil, &httpErr{400}
 	}
-	p := filepath.Join(dataDir, "cache", "d4b_"+hashURL(u)+".html")
-	var page string
-	if st, err := os.Stat(p); err == nil && time.Since(st.ModTime()) < 6*time.Hour {
-		b, _ := os.ReadFile(p)
-		page = string(b)
+	p := filepath.Join(dataDir, "cache", "d4bfull_"+hashURL(u)+".json")
+	var f D4Full
+	if st, err := os.Stat(p); err == nil && time.Since(st.ModTime()) < 6*time.Hour && readJSON(p, &f) == nil && f.OK == 1 {
+		return &f, nil
 	}
-	if page == "" {
-		d4bMu.Lock()
-		got, err := browserDump(u)
-		d4bMu.Unlock()
-		if err != nil || !strings.Contains(got, "builder__gear") {
-			if b, e2 := os.ReadFile(p); e2 == nil {
-				page = string(b)
-			} else if err != nil {
-				return nil, err
-			} else {
-				return nil, &httpErr{422}
-			}
-		} else {
-			page = got
-			os.WriteFile(p, []byte(got), 0o644)
-		}
+	d4bMu.Lock()
+	got, err := browserRun(u, `!!document.querySelector('.builder__gear__name')`, d4bExtractJS, `window.__hrOut||null`, 4*time.Minute)
+	d4bMu.Unlock()
+	if err == nil {
+		err = json.Unmarshal([]byte(got), &f)
 	}
-	gdd := getGD()
-	enSkill := map[string][2]string{} // nome inglese senza spazi → [it, en]
-	aspIt := map[string]string{}
-	if gdd != nil {
-		for _, s := range gdd.Skills {
-			if s[1] != "" {
-				enSkill[squash(s[1])] = s
-			}
-		}
-		for _, a := range gdd.Aspects {
-			if a[1] != "" && a[0] != "" {
-				aspIt[normName(a[1])] = a[0]
-			}
-		}
+	if err == nil && f.OK != 1 {
+		err = fmt.Errorf("lettura D4Builds: %s", f.Err)
 	}
-	v := PVariant{Name: "Base"}
-	if m := d4bVarRe.FindStringSubmatch(page); m != nil && m[1] != "" {
-		v.Name = html.UnescapeString(m[1])
+	if err != nil {
+		var old D4Full
+		if readJSON(p, &old) == nil && old.OK == 1 {
+			return &old, nil
+		}
+		return nil, err
 	}
-	chunks := strings.Split(page, `class="builder__gear__item `)
-	for _, ch := range chunks[1:] {
-		if i := strings.Index(ch, `class="builder__gear__item `); i > 0 {
-			ch = ch[:i]
-		}
-		m := d4bNameRe.FindStringSubmatch(ch)
-		sm := d4bSlotRe.FindStringSubmatch(ch)
-		if m == nil || sm == nil {
-			continue
-		}
-		en := strings.TrimSpace(html.UnescapeString(tagStripRe.ReplaceAllString(m[3], "")))
-		slot := strings.TrimSpace(html.UnescapeString(tagStripRe.ReplaceAllString(sm[1], "")))
-		if en == "" {
-			continue
-		}
-		var gems []string
-		for _, gm := range d4bGemRe.FindAllStringSubmatch(ch, -1) {
-			gname := html.UnescapeString(gm[1])
-			if it, gi := itName(gname); gi != nil {
-				gname = it + "|" + gi.En
-			}
-			gems = append(gems, gname)
-		}
-		g := PGear{En: en, Name: en, TypeEn: slot, Type: slotIt[slot], Kind: "unique", Sockets: gems}
-		if g.Type == "" {
-			g.Type = slot
-		}
-		switch m[2] {
-		case "mythic":
-			g.Kind = "mythic"
-		}
-		if strings.Contains(strings.ToLower(en), "aspect") {
-			g.Kind = "legendary"
-			if it := aspIt[normName(en)]; it != "" {
-				g.Name = it
-			} else if it := aspIt[normName(strings.TrimSuffix(strings.TrimPrefix(en, "Aspect of "), " Aspect"))]; it != "" {
-				g.Name = it
-			}
-		} else if it, gi := itName(en); gi != nil {
-			g.Name = it
-			if gi.Mythic {
-				g.Kind = "mythic"
-			}
-			if strings.HasPrefix(gi.Key, "Runeword_") {
-				g.Kind = "runeword"
+	f.URL, f.At = u, time.Now().Unix()
+	f.Tr = d4bTranslate(&f)
+	writeJSON(p, &f)
+	return &f, nil
+}
+
+// nomi inglesi → italiano (oggetti, aspetti, abilità, glifi, tavole, nodi)
+var trCache struct {
+	sync.Mutex
+	d *gameData
+	m map[string]string
+}
+
+func trMap() map[string]string {
+	d := getGD()
+	trCache.Lock()
+	defer trCache.Unlock()
+	if d == nil {
+		return map[string]string{}
+	}
+	if trCache.d == d {
+		return trCache.m
+	}
+	m := map[string]string{}
+	add := func(it, en string) {
+		if it != "" && en != "" && it != en {
+			if _, ok := m[normName(en)]; !ok {
+				m[normName(en)] = it
 			}
 		}
-		v.Gear = append(v.Gear, g)
 	}
-	seen := map[string]bool{}
-	for _, m := range d4bSkillRe.FindAllStringSubmatch(page, -1) {
-		k, alt := m[1], html.UnescapeString(m[2])
-		if seen[k] || len(v.Skills) >= 6 {
-			continue
-		}
-		seen[k] = true
-		s := PSkill{Key: k, Name: alt, En: alt}
-		if x, ok := enSkill[squash(alt)]; ok {
-			s.Name, s.En = x[0], x[1]
-		} else if x, ok := enSkill[squash(k)]; ok {
-			s.Name, s.En = x[0], x[1]
-		} else if gdd != nil {
-			continue // non è un'abilità (es. arma della tecnica)
-		}
-		v.Skills = append(v.Skills, s)
+	for _, g := range d.Items {
+		add(g.It, g.En)
 	}
-	var runes []string
-	for _, m := range d4bRuneRe.FindAllStringSubmatch(page, -1) {
-		r := strings.TrimSpace(html.UnescapeString(m[1]))
-		if r != "" && len(runes) < 8 {
-			if it, gi := itName(r); gi != nil {
-				r = it + "|" + gi.En
+	for _, a := range d.Aspects {
+		add(a[0], a[1])
+	}
+	for _, sk := range d.Skills {
+		add(sk[0], sk[1])
+	}
+	for _, g := range d.Glyphs {
+		add(g[0], g[1])
+	}
+	for _, b := range d.Boards {
+		add(b.It, b.En)
+	}
+	for _, n := range d.NodeNames {
+		add(n[0], n[1])
+	}
+	for en, it := range slotIt {
+		add(it, en)
+	}
+	trCache.d, trCache.m = d, m
+	return m
+}
+
+func trName(en string) string {
+	m := trMap()
+	if it := m[normName(en)]; it != "" {
+		return it
+	}
+	if it, g := itName(en); g != nil {
+		return it
+	}
+	return ""
+}
+
+func d4bTranslate(f *D4Full) map[string]string {
+	out := map[string]string{}
+	var walk func(v any, key string)
+	walk = func(v any, key string) {
+		switch x := v.(type) {
+		case map[string]any:
+			for k, vv := range x {
+				walk(vv, k)
 			}
-			runes = append(runes, r)
+		case []any:
+			for _, vv := range x {
+				walk(vv, key)
+			}
+		case string:
+			if (key == "n" || key == "slot" || key == "g" || key == "t") && len(x) > 1 && len(x) < 80 {
+				if _, ok := out[x]; !ok {
+					if it := trName(x); it != "" {
+						out[x] = it
+					}
+				}
+			}
 		}
 	}
-	if len(runes) > 0 {
-		v.Gear = append(v.Gear, PGear{Type: "Rune attive", TypeEn: "Active Runes", Name: "Rune", En: "Runes", Kind: "other", Sockets: runes})
+	for _, v := range f.Variants {
+		walk(v, "")
+		if t, ok := v["tree"].(map[string]any); ok {
+			if nodes, ok := t["nodes"].([]any); ok {
+				for _, n := range nodes {
+					if a, ok := n.([]any); ok && len(a) > 3 {
+						if s, ok := a[3].(string); ok && s != "" {
+							if it := trName(s); it != "" {
+								out[s] = it
+							}
+						}
+					}
+				}
+			}
+		}
 	}
-	if len(v.Gear) == 0 && len(v.Skills) == 0 {
+	walk(f.Notes, "")
+	return out
+}
+
+// versione "leggera" (equipaggiamento, abilità, rune) usata per elenchi, ricerca e overlay
+func (f *D4Full) slim() *PBuild {
+	str := func(m map[string]any, k string) string { s, _ := m[k].(string); return s }
+	list := func(m map[string]any, k string) []map[string]any {
+		var out []map[string]any
+		if a, ok := m[k].([]any); ok {
+			for _, x := range a {
+				if mm, ok := x.(map[string]any); ok {
+					out = append(out, mm)
+				}
+			}
+		}
+		return out
+	}
+	tr := func(en string) string {
+		if it := f.Tr[en]; it != "" {
+			return it
+		}
+		return en
+	}
+	b := &PBuild{Name: f.Head["title"], URL: f.URL}
+	for _, v := range f.Variants {
+		pv := PVariant{Name: str(v, "name")}
+		for _, g := range list(v, "gear") {
+			en, slot := str(g, "n"), str(g, "slot")
+			if en == "" || strings.EqualFold(slot, "Empty") {
+				continue
+			}
+			pg := PGear{En: en, Name: tr(en), TypeEn: slot, Type: tr(slot), Kind: "unique"}
+			if k := str(g, "k"); k == "mythic" {
+				pg.Kind = "mythic"
+			}
+			if strings.Contains(strings.ToLower(en), "aspect") {
+				pg.Kind = "legendary"
+			}
+			for _, gm := range list(g, "gems") {
+				if n := str(gm, "n"); n != "" {
+					pg.Sockets = append(pg.Sockets, tr(n)+"|"+n)
+				}
+			}
+			pv.Gear = append(pv.Gear, pg)
+		}
+		var runes []string
+		for _, r := range list(v, "runes") {
+			if n := str(r, "n"); n != "" {
+				runes = append(runes, tr(n)+"|"+n)
+			}
+		}
+		if len(runes) > 0 {
+			pv.Gear = append(pv.Gear, PGear{Type: "Rune attive", TypeEn: "Active Runes", Name: "Rune", En: "Runes", Kind: "other", Sockets: runes})
+		}
+		for _, sk := range list(v, "skills") {
+			if n := str(sk, "n"); n != "" && len(pv.Skills) < 6 {
+				pv.Skills = append(pv.Skills, PSkill{Key: squash(n), Name: tr(n), En: n})
+			}
+		}
+		b.Variants = append(b.Variants, pv)
+	}
+	return b
+}
+
+func d4bBuildDetail(u string) (*PBuild, error) {
+	f, err := d4bFullRead(u)
+	if err != nil {
+		return nil, err
+	}
+	b := f.slim()
+	if len(b.Variants) == 0 {
 		return nil, &httpErr{422}
 	}
-	return &PBuild{Name: v.Name, URL: u, Variants: []PVariant{v}}, nil
+	return b, nil
 }
 
 func squash(s string) string {

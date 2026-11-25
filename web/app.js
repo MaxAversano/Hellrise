@@ -162,7 +162,21 @@ function tick() {
 
 // ---------- dati ----------
 async function getBuilds(season) {
-  if (!S.builds[season]) S.builds[season] = api('/api/builds?s=' + season).catch(e => { delete S.builds[season]; throw e; });
+  if (!S.builds[season]) S.builds[season] = (async () => {
+    const d = await api('/api/builds?s=' + season);
+    // stagione nuova (PTR): le fonti che non hanno ancora build mostrano quelle della stagione precedente
+    const prev = (S.st.seasons || []).map(x => x.n).filter(n => n < season).sort((a, b) => b - a)[0];
+    const meta = (S.st.seasons || []).find(x => x.n === season);
+    if (prev && meta?.ptr) {
+      try {
+        const p = await api('/api/builds?s=' + prev);
+        const have = new Set(d.builds.map(b => b.src + '|' + b.cls));
+        const add = p.builds.filter(b => !have.has(b.src + '|' + b.cls)).map(b => ({ ...b, fromSeason: prev, tier: '' , tierNote: '', info: '' }));
+        d.builds = d.builds.concat(add);
+      } catch { }
+    }
+    return d;
+  })().catch(e => { delete S.builds[season]; throw e; });
   return S.builds[season];
 }
 async function getLoot(season) {
@@ -260,9 +274,9 @@ PAGES.build = async main => {
   if (ui.type !== 'Tutte') list = list.filter(b => ui.type === 'Leveling' ? /level/i.test(b.type) : !/level/i.test(b.type));
   if (ui.src !== 'all') list = list.filter(b => b.src === ui.src);
   const tv = { 'S+': 0, S: 1, A: 2, B: 3, C: 4, D: 5 };
-  list.sort((a, b) => ((tv[a.tier] ?? 9) - (tv[b.tier] ?? 9)) || ((a.src === 'Maxroll' ? 0 : 1) - (b.src === 'Maxroll' ? 0 : 1)) || ((b.likes || 0) - (a.likes || 0)) || ((b.updated || 0) - (a.updated || 0)));
+  list.sort((a, b) => ((a.fromSeason ? 1 : 0) - (b.fromSeason ? 1 : 0)) || ((tv[a.tier] ?? 9) - (tv[b.tier] ?? 9)) || ((a.src === 'Maxroll' ? 0 : 1) - (b.src === 'Maxroll' ? 0 : 1)) || ((b.likes || 0) - (a.likes || 0)) || ((b.updated || 0) - (a.updated || 0)));
   if (!list.length) { $('#blist').innerHTML = `<div class="empty">${IC.search}<span>Nessuna build con questi filtri</span></div>`; return; }
-  $('#blist').innerHTML = list.map((b, i) => `<div class="bitem ${ui.sel === b.url ? 'on' : ''}" data-i="${i}">${tierBadge(b.tier)}<div class="t"><b>${esc(b.title)}</b><div class="meta"><span class="badge src-${b.src}">${b.src}</span><span class="badge ${/level/i.test(b.type) ? 'lv' : 'eg'}">${esc(b.type)}</span>${b.author ? `<span>${esc(b.author)}</span>` : ''}${b.likes ? `<span>♥ ${b.likes}</span>` : ''}</div></div></div>`).join('');
+  $('#blist').innerHTML = list.map((b, i) => `<div class="bitem ${ui.sel === b.url ? 'on' : ''}" data-i="${i}">${tierBadge(b.tier)}<div class="t"><b>${esc(b.title)}</b><div class="meta"><span class="badge src-${b.src}">${b.src}</span>${b.fromSeason ? `<span class="badge">S${b.fromSeason}</span>` : ''}<span class="badge ${/level/i.test(b.type) ? 'lv' : 'eg'}">${esc(b.type)}</span>${b.author ? `<span>${esc(b.author)}</span>` : ''}${b.likes ? `<span>♥ ${b.likes}</span>` : ''}</div></div></div>`).join('');
   $$('#blist .bitem').forEach(el => el.onclick = () => { $$('#blist .bitem').forEach(x => x.classList.remove('on')); el.classList.add('on'); ui.sel = list[+el.dataset.i].url; ui.variant = 0; showBuild(list[+el.dataset.i]); });
   const cur = list.find(b => b.url === ui.sel) || list[0];
   ui.sel = cur.url;
@@ -285,55 +299,218 @@ function similarMaxroll(b) {
   }
   return best;
 }
+// ---------------------------------------------------------------- scheda build (come su D4Builds)
+const SA = 'https://sunderarmor.com/DIABLO4/';
+const IMG = u => !u ? '' : (window.DEMO || !/^https:\/\/sunderarmor\.com\//.test(u) ? u : '/api/img?u=' + encodeURIComponent(u));
+const snake = s => String(s || '').toLowerCase().replace(/[’]/g, "'").replace(/\s*\(.*?\)\s*/g, '').trim().replace(/[\s-]+/g, '_');
+const SLOTICON = { 'helm': 'helm', 'chest armor': 'chest_armor', 'gloves': 'gloves', 'pants': 'pants', 'boots': 'boots', 'amulet': 'amulet', 'ring 1': 'ring_1', 'ring 2': 'ring_2', 'ring': 'ring_1', 'offhand': 'offhand', 'focus': 'offhand', 'shield': 'offhand', 'totem': 'offhand' };
+const slotIcon = slot => SA + 'Uniques/' + (SLOTICON[String(slot).toLowerCase()] || 'weapon') + '.png';
+const isWeapon = s => /weapon|two-handed|bludgeon|slash|dual|ranged|polearm|sword|mace|axe|staff|bow|dagger|scythe|wand|glaive|flail/i.test(s || '');
+const KINDCLS = k => ({ mythic: 'mythic', unique: 'unique', legendary: 'legendary', runeword: 'runeword', talisman: 'talisman' }[k] || (k ? k : ''));
+
+function viewFromPlanner(p, src) {
+  const variants = (p.variants || []).map(v => {
+    const gear = [], charms = [], extra = [];
+    let runes = [], seal = null;
+    for (const g of v.gear || []) {
+      if (g.typeEn === 'Active Runes') { runes = (g.sockets || []).map(s => { const [it, en] = s.split('|'); return { n: en || it, it }; }); continue; }
+      if (g.kind === 'talisman') { const o = { n: g.en || g.name, it: g.name }; if (/seal/i.test(g.typeEn || '')) seal = o; else charms.push(o); continue; }
+      if (!g.type && !g.typeEn) { if (g.name) extra.push({ n: g.en || g.name, it: g.name }); continue; }
+      const en = g.en || g.name;
+      const aspect = g.aspectEn || g.aspect;
+      const asp = /aspect/i.test(en);
+      const icon = asp ? SA + 'Codex/1/offensive.png' : (g.kind === 'unique' || g.kind === 'mythic' || g.kind === 'runeword' ? SA + 'Uniques/2/' + snake(en) + '.png' : slotIcon(g.typeEn || g.type));
+      gear.push({ slot: g.typeEn || g.type, slotIt: g.type, n: en, it: g.name, k: asp ? 'legendary' : g.kind, i: icon, fb: slotIcon(g.typeEn || g.type), asp: aspect ? { n: g.aspectEn || aspect, it: g.aspect } : null, temp: g.tempered, gems: (g.sockets || []).map(s => { const [it, e] = s.split('|'); return { n: e || it, it }; }) });
+    }
+    return { name: v.name, gear, charms, seal, runes, extra, skills: (v.skills || []).map(s => ({ n: s.en || s.name, it: s.name, i: SA + 'Skills/VoH2/' + snake(s.en || s.name) + '.png' })), mxParagon: v.paragon || null };
+  });
+  return { src, variants, notes: null, tr: {}, filters: p.filters || [], plannerId: p.id, plannerUrl: p.url };
+}
+function viewFromFull(f) { return { src: 'd4b', variants: f.variants || [], notes: f.notes, notesTitle: f.notesTitle, tr: f.tr || {}, head: f.head || {}, at: f.at }; }
+function TN(view, en, it) { if (lang() === 'en') return en || it || ''; return it || view.tr[en] || en || ''; }
+function TSUB(view, en, it) { const main = TN(view, en, it); return main !== en && en ? en : ''; }
+function icoImg(u, cls, alt, fb) { return u ? `<img class="${cls || ''}" src="${esc(IMG(u))}" alt="${esc(alt || '')}" loading="lazy" ${fb ? `data-fb="${esc(IMG(fb))}"` : ''} onerror="if(this.dataset.fb&&this.src!==location.origin+this.dataset.fb&&!this.dataset.f){this.dataset.f=1;this.src=this.dataset.fb}else{this.style.visibility='hidden'}">` : ''; }
+
+const BTABS = [['gear', 'Equipaggiamento e abilità', SA + 'UI/gear_skills.png'], ['tree', 'Albero abilità', SA + 'UI/skill_tree.png'], ['paragon', 'Paragon', SA + 'UI/paragon.png'], ['merc', 'Mercenari', SA + 'UI/characters_icon.png'], ['war', 'Piani di guerra', SA + 'UI/warplans.png'], ['notes', 'Note', SA + 'UI/notes.png']];
+
 async function showBuild(b) {
   const el = $('#bdet'), ui = S.ui.build;
-  const head = `<div class="row" style="align-items:flex-start">${tierBadge(b.tier)}<div style="flex:1"><h2 class="title">${esc(b.title)}</h2><div class="row wrap" style="gap:6px;margin-top:6px"><span class="badge src-${b.src}">${b.src}</span><span class="badge ${/level/i.test(b.type) ? 'lv' : 'eg'}">${esc(b.type)}</span>${b.author ? `<span class="muted" style="font-size:12.5px">di ${esc(b.author)}</span>` : ''}${b.updated ? `<span class="muted" style="font-size:12.5px">· aggiornata ${dateLbl(b.updated)}</span>` : ''}</div></div><button class="btn" id="bopen">${IC.ext} Apri guida</button></div>
+  const head = `<div class="bhead">${tierBadge(b.tier)}<div style="flex:1;min-width:0"><h2 class="title">${esc(b.title)}</h2><div class="row wrap" style="gap:6px;margin-top:6px"><span class="badge src-${b.src}">${b.src}</span>${b.fromSeason ? `<span class="badge" title="La stagione ${S.season} non ha ancora build su ${b.src}">stagione ${b.fromSeason}</span>` : ''}<span class="badge ${/level/i.test(b.type) ? 'lv' : 'eg'}">${esc(b.type)}</span>${b.author ? `<span class="muted" style="font-size:12.5px">di ${esc(b.author)}</span>` : ''}${b.updated ? `<span class="muted" style="font-size:12.5px">· aggiornata ${dateLbl(b.updated)}</span>` : ''}</div></div><button class="btn" id="bopen">${IC.ext} Apri guida</button></div>
     ${b.tier || b.info ? `<div class="robinfo"><b>Rob2628:</b> ${b.tier ? `tier ${esc(b.tier)}${b.tierNote ? ' (' + esc(b.tierNote) + ')' : ''}` : ''}${b.info ? ' · ' + esc(b.info) : ''}</div>` : ''}`;
   const bindOpen = () => { const o = $('#bopen'); if (o) o.onclick = () => openGuide(b.url); };
-  let p = null, note = '';
-  el.innerHTML = head + `<div class="skel" style="height:260px;margin-top:16px"></div>`;
+  el.innerHTML = head + `<div class="skel" style="height:420px;margin-top:16px"></div>`;
   bindOpen();
+  const token = (ui._tok = (ui._tok || 0) + 1);
+  let view = null, note = '';
   try {
-    if (b.profile) p = await getPlanner(b.profile);
-    else if (b.src === 'Mobalytics') {
-      try { p = await (plannerCache['m:' + b.url] ||= api('/api/mobabuild?u=' + encodeURIComponent(b.url)).catch(e => { delete plannerCache['m:' + b.url]; throw e; })); }
-      catch (e) { const sim = similarMaxroll(b); if (sim) { p = await getPlanner(sim.profile); note = `${esc(e.message)}. Intanto qui sotto vedi la guida Maxroll più simile, <b>${esc(sim.title)}</b>.`; } else throw e; }
-    }
+    if (b.profile) view = viewFromPlanner(await getPlanner(b.profile), 'maxroll');
     else if (b.src === 'D4Builds') {
-      try { p = await (plannerCache['d:' + b.url] ||= api('/api/d4bbuild?u=' + encodeURIComponent(b.url)).catch(e => { delete plannerCache['d:' + b.url]; throw e; })); }
-      catch (e) { const sim = similarMaxroll(b); if (sim) { p = await getPlanner(sim.profile); note = `${esc(e.message)}. Intanto qui sotto vedi la guida Maxroll più simile, <b>${esc(sim.title)}</b>.`; } else throw e; }
+      try { view = viewFromFull(await (plannerCache['f:' + b.url] ||= api('/api/d4bfull?u=' + encodeURIComponent(b.url)).catch(e => { delete plannerCache['f:' + b.url]; throw e; }))); }
+      catch (e) {
+        try { view = viewFromPlanner(await (plannerCache['d:' + b.url] ||= api('/api/d4bbuild?u=' + encodeURIComponent(b.url)).catch(e2 => { delete plannerCache['d:' + b.url]; throw e2; })), 'd4b'); note = 'Per ora c\'è solo l\'equipaggiamento: le altre schede (albero, paragon, mercenari, note) arrivano col prossimo aggiornamento dei dati.'; }
+        catch (e2) { const sim = similarMaxroll(b); if (sim) { view = viewFromPlanner(await getPlanner(sim.profile), 'maxroll'); note = `${esc(e.message)}. Intanto qui sotto vedi la guida Maxroll più simile, <b>${esc(sim.title)}</b>.`; } else throw e; }
+      }
+    } else if (b.src === 'Mobalytics') {
+      try { view = viewFromPlanner(await (plannerCache['m:' + b.url] ||= api('/api/mobabuild?u=' + encodeURIComponent(b.url)).catch(e => { delete plannerCache['m:' + b.url]; throw e; })), 'moba'); }
+      catch (e) { const sim = similarMaxroll(b); if (sim) { view = viewFromPlanner(await getPlanner(sim.profile), 'maxroll'); note = `${esc(e.message)}. Intanto qui sotto vedi la guida Maxroll più simile, <b>${esc(sim.title)}</b>.`; } else throw e; }
     }
   } catch (e) { note = 'Dettagli non disponibili: ' + esc(e.message); }
-  if (!p || !p.variants?.length) {
-    el.innerHTML = head + `${b.desc ? `<p class="muted">${esc(b.desc)}</p>` : ''}<div class="empty" style="padding:30px">${IC.doc}<span>${note || (b.src === 'D4Builds' ? 'D4Builds tiene i dettagli delle build in un archivio non leggibile dall\'app e non ho trovato una guida Maxroll simile.' : 'Dettagli non disponibili.')}<br>“Apri guida” la apre in una finestra di Hellrise.</span></div>`;
+  if (token !== ui._tok) return;
+  if (!view || !view.variants.length) {
+    el.innerHTML = head + `<div class="empty" style="padding:30px">${IC.doc}<span>${note || 'Dettagli non disponibili.'}<br>“Apri guida” la apre in una finestra di Hellrise.</span></div>`;
     bindOpen();
     return;
   }
-  if (ui.variantName) { const i = p.variants.findIndex(v => v.name.toLowerCase().includes(ui.variantName)); if (i >= 0) ui.variant = i; ui.variantName = null; }
-  if (!p.variants[ui.variant]) ui.variant = 0;
-  const v = p.variants[ui.variant] || { skills: [], gear: [] };
-  const filters = p.filters || [];
+  if (ui.variantName) { const i = view.variants.findIndex(v => (v.name || '').toLowerCase().includes(ui.variantName)); if (i >= 0) ui.variant = i; ui.variantName = null; }
+  if (!view.variants[ui.variant]) ui.variant = 0;
+  const v = view.variants[ui.variant];
+  const has = {
+    gear: true,
+    tree: !!(v.tree && v.tree.nodes?.length),
+    paragon: !!(v.paragon?.boards?.length || v.mxParagon?.length),
+    merc: !!(v.merc && (v.merc.slots?.length || v.merc.items?.length)),
+    war: !!(v.war || []).some(w => w.tree),
+    notes: !!(view.notes && view.notes.length),
+  };
+  if (!has[ui.btab]) ui.btab = 'gear';
   el.innerHTML = head + (note ? `<div class="robinfo" style="background:rgba(120,160,255,.07);border-color:rgba(120,160,255,.2)">${note}</div>` : '') + `
-    ${p.variants.length > 1 ? `<div class="vtabs seg">${p.variants.map((x, i) => `<button data-v="${i}" class="${i === ui.variant ? 'on' : ''}">${esc(x.name)}</button>`).join('')}</div>` : '<div style="height:16px"></div>'}
-    ${v.skills?.length ? `<div class="lbl" style="margin-bottom:8px">Barra delle abilità</div>
-    <div class="skills">${v.skills.map((s, i) => `<div class="skill"><span class="key">${SLOT_KEYS[i] || ''}</span><b>${esc(nm(s.name, s.en))}</b></div>`).join('')}</div>` : ''}
-    <div class="lbl" style="margin-bottom:8px">Equipaggiamento</div>
-    <div class="gear">${(v.gear || []).map(g => `<div class="gi ${g.kind}"><span class="ty">${esc(nm(g.type, g.typeEn) || 'Oggetto')}</span><b>${esc(nm(g.name, g.en))}</b>${g.aspect ? `<small>${esc(nm(g.aspect, g.aspectEn))}</small>` : ''}${sub(g.name, g.en) ? `<small class="muted">${esc(sub(g.name, g.en))}</small>` : ''}${g.sockets?.length ? `<div class="sock">${g.sockets.map(s => { const [i, e] = s.split('|'); return `<span>${esc(nm(i, e))}</span>`; }).join('')}</div>` : ''}</div>`).join('')}</div>
-    ${filters.length ? `<div class="lbl" style="margin:20px 0 8px">Filtri loot · da importare in gioco</div><div class="grid" style="gap:8px">${filters.map((f, i) => `<div class="filter"><b>${esc(f.name)}</b><button class="btn sm" data-f="${i}">${IC.copy} Copia codice</button></div>`).join('')}</div>` : ''}
-    ${v.paragon?.length ? `<div class="row" style="margin:22px 0 4px"><div class="lbl">Paragon</div><span class="sp"></span><div class="seg" id="pstep">${v.paragon.map((st, i) => `<button data-s="${i}" class="${i === (ui.pstep || 0) ? 'on' : ''}">${esc(st.name || 'Fase ' + (i + 1))}</button>`).join('')}</div></div>${PLEGEND}<div class="pboards" id="pboards"></div>` : ''}
-    <div class="row" style="margin-top:20px;gap:8px;flex-wrap:wrap">${v.skills?.length ? `<button class="btn pri" id="mkmacro">${IC.keyb} Suggerisci profilo macro</button>` : ''}${v.paragon?.length ? `<button class="btn" id="toov">Paragon nell'overlay in gioco</button>` : ''}${p.id ? `<button class="btn ghost" id="planner">${IC.ext} Planner Maxroll</button>` : ''}</div>`;
-  if (v.paragon?.length) {
-    if (!v.paragon[ui.pstep || 0]) ui.pstep = 0;
-    const drawSteps = () => { const st = v.paragon[ui.pstep || 0]; $('#pboards').innerHTML = st.boards.map((bd, i) => boardCard(bd, i)).join(''); $$('#pboards canvas').forEach((c, i) => drawBoard(c, st.boards[i])); };
-    drawSteps();
-    $$('#pstep button', el).forEach(x => x.onclick = () => { ui.pstep = +x.dataset.s; $$('#pstep button').forEach(y => y.classList.toggle('on', y === x)); drawSteps(); });
-    $('#toov').onclick = async () => { const o = { ...(S.st.settings.overlay || {}), planner: p.id, title: b.title, variant: ui.variant, step: ui.pstep || 0, board: 0, enabled: true, paragon: { ...(S.st.settings.overlay?.paragon || {}), on: true } }; try { S.st.settings = await post('/api/settings', { overlay: o }); toast('Paragon impostato nell\'overlay'); } catch (e) { toast(e.message); } };
-  }
-  $$('.vtabs button', el).forEach(x => x.onclick = () => { ui.variant = +x.dataset.v; showBuild(b); });
-  $$('[data-f]', el).forEach(x => x.onclick = () => copy(filters[+x.dataset.f].code, 'Codice del filtro'));
+    <div class="btabs">${BTABS.filter(t => has[t[0]]).map(t => `<button data-t="${t[0]}" class="${ui.btab === t[0] ? 'on' : ''}">${icoImg(t[2], 'ti')}${t[1]}</button>`).join('')}</div>
+    <div class="bvar">${view.variants.length > 1 ? `<select id="bvsel">${view.variants.map((x, i) => `<option value="${i}" ${i === ui.variant ? 'selected' : ''}>${esc(x.name || 'Variante ' + (i + 1))}</option>`).join('')}</select>` : `<span class="bvname">${esc(v.name || 'Build')}</span>`}${view.head?.season ? `<span class="muted">${esc(view.head.season.replace('Season', 'Stagione'))}</span>` : ''}<span class="sp"></span>${view.at ? `<span class="muted" style="font-size:11.5px">letta da D4Builds ${dateLbl(view.at)}</span>` : ''}</div>
+    <div id="btab"></div>`;
   bindOpen();
-  $('#planner')?.addEventListener('click', () => openGuide(p.url));
-  $('#mkmacro')?.addEventListener('click', () => { S.ui.macroDraft = draftFromBuild(b, p, v); location.hash = '#/macro'; });
+  $$('.btabs button', el).forEach(x => x.onclick = () => { ui.btab = x.dataset.t; $$('.btabs button', el).forEach(y => y.classList.toggle('on', y === x)); drawTab(); });
+  const vs = $('#bvsel'); if (vs) vs.onchange = () => { ui.variant = +vs.value; showBuild(b); };
+  const drawTab = () => {
+    const box = $('#btab');
+    if (ui.btab === 'tree') { box.innerHTML = treeView(view, v.tree, 'skill'); bindViewer(box); return; }
+    if (ui.btab === 'paragon') { box.innerHTML = v.paragon ? paragonView(view, v.paragon) : mxParagonHTML(v); if (v.paragon) bindViewer(box); else bindMxParagon(box, view, v, b); return; }
+    if (ui.btab === 'merc') { box.innerHTML = mercView(view, v.merc); return; }
+    if (ui.btab === 'war') { box.innerHTML = warView(view, v.war); $$('.wtabs button', box).forEach(x => x.onclick = () => { ui.war = +x.dataset.w; drawTab(); }); bindViewer(box); return; }
+    if (ui.btab === 'notes') { box.innerHTML = `<div class="bnotes">${notesHTML(view, view.notes)}</div>`; return; }
+    box.innerHTML = gearView(view, v, b);
+    $$('[data-f]', box).forEach(x => x.onclick = () => copy(view.filters[+x.dataset.f].code, 'Codice del filtro'));
+    $('#mkmacro')?.addEventListener('click', () => { S.ui.macroDraft = draftFromBuild(b, { variants: [{ skills: v.skills.map(s => ({ name: TN(view, s.n, s.it), en: s.n })) }] }, { skills: v.skills.map(s => ({ name: TN(view, s.n, s.it), en: s.n })) }); location.hash = '#/macro'; });
+    $('#planner')?.addEventListener('click', () => openGuide(view.plannerUrl));
+  };
+  drawTab();
+}
+
+function gearView(view, v, b) {
+  const L = ['helm', 'chest armor', 'gloves', 'pants', 'boots'], R = ['amulet', 'ring 1', 'ring 2', 'ring', 'offhand', 'focus', 'shield', 'totem'];
+  const left = [], right = [], used = new Set();
+  const g = v.gear || [];
+  for (const s of L) g.forEach((x, i) => { if (!used.has(i) && String(x.slot).toLowerCase() === s) { left.push(x); used.add(i); } });
+  const weapons = g.map((x, i) => [x, i]).filter(([x, i]) => !used.has(i) && isWeapon(x.slot));
+  if (weapons[0]) { left.push(weapons[0][0]); used.add(weapons[0][1]); }
+  for (const s of R) g.forEach((x, i) => { if (!used.has(i) && String(x.slot).toLowerCase() === s && !/^empty$/i.test(x.slot)) { right.push(x); used.add(i); } });
+  g.forEach((x, i) => { if (!used.has(i)) { right.push(x); used.add(i); } });
+  const slotHTML = (x, side) => {
+    const empty = /^empty$/i.test(x.slot) || !x.n;
+    const kind = /aspect/i.test(x.n || '') ? 'legendary' : KINDCLS(x.k);
+    return `<div class="gslot ${side} ${empty ? 'empty' : ''}"><div class="gico k-${kind}">${icoImg(x.i, 'gimg', x.n, x.fb || slotIcon(x.slot))}${x.gems?.length ? `<div class="ggems">${x.gems.map(gm => `<span title="${esc(TN(view, gm.n, gm.it))}">${gm.i ? icoImg(gm.i, '', gm.n) : `<i>${esc((TN(view, gm.n, gm.it) || '?').slice(0, 2))}</i>`}</span>`).join('')}</div>` : ''}</div><div class="gtx"><b class="k-${kind}">${esc(empty ? 'Vuoto' : TN(view, x.n, x.it))}</b><small>${esc(TN(view, x.slot, x.slotIt))}</small>${x.asp ? `<small class="asp">${esc(TN(view, x.asp.n, x.asp.it))}</small>` : ''}</div></div>`;
+  };
+  const ring = (v.prime?.length ? v.prime : v.skills || []).slice(0, 8);
+  const ringHTML = ring.map((p, i) => { const a = (i / ring.length) * Math.PI * 2 - Math.PI / 2, r = 41; return `<div class="rnode" style="left:${50 + r * Math.cos(a)}%;top:${50 + r * Math.sin(a)}%" title="${esc(TN(view, p.n, p.it))}">${icoImg(p.i, '', p.n)}</div>`; }).join('');
+  const chip = (x, extraCls) => `<div class="chipi ${extraCls || ''}" title="${esc(TSUB(view, x.n, x.it))}">${x.i ? icoImg(x.i, '', x.n) : ''}<span>${esc(TN(view, x.n, x.it))}</span></div>`;
+  const keys = ['LMB', 'RMB', '1', '2', '3', '4'];
+  const sec = (title, body) => body ? `<div class="bsec"><div class="lbl">${title}</div>${body}</div>` : '';
+  return `<div class="gboard">
+      <div class="gcol">${left.map(x => slotHTML(x, 'l')).join('')}</div>
+      <div class="gcenter"><div class="gring">${ringHTML}<div class="rmid">${v.prime?.length ? '<span>Poteri dei<br>Primi Mali</span>' : '<span>Abilità</span>'}</div></div></div>
+      <div class="gcol">${right.map(x => slotHTML(x, 'r')).join('')}</div>
+    </div>
+    ${sec('Rune attive', v.runes?.length ? `<div class="chips">${v.runes.map(x => chip(x, 'rune')).join('')}</div>` : '')}
+    ${sec('Sigillo e talismani', (v.seal || v.charms?.length) ? `<div class="chips">${v.seal ? chip(v.seal, 'seal') : ''}${(v.charms || []).map(x => chip(x, 'charm')).join('')}</div>` : '')}
+    ${sec(v.skillsTitle && !/^skills$/i.test(v.skillsTitle) ? esc(v.skillsTitle) : 'Barra delle abilità', v.skills?.length ? `<div class="bskills">${v.skills.slice(0, 6).map((s, i) => `<div class="bskill"><span class="key">${keys[i] || ''}</span>${icoImg(s.i, 'sico', s.n)}<b>${esc(TN(view, s.n, s.it))}</b></div>`).join('')}</div>` : '')}
+    ${(v.extra || []).filter(x => x.items?.length).map(x => sec(x.title === 'Technique' ? 'Tecnica' : esc(x.title), `<div class="chips">${x.items.map(y => chip(y)).join('')}</div>`)).join('')}
+    ${v.prime?.length ? sec('Poteri dei Primi Mali', `<div class="chips">${v.prime.map(x => chip(x)).join('')}</div>`) : ''}
+    ${v.shards?.length ? sec(v.shardsTitle === 'Soul Shards' ? 'Frammenti d\'anima' : esc(v.shardsTitle || 'Frammenti'), `<div class="shards">${v.shards.map(sh => `<div class="shard ${sh.a ? 'on' : ''}"><div class="scat">${icoImg(sh.cat?.i, '', sh.cat?.n)}<b>${esc(TN(view, sh.cat?.n, ''))}</b></div><div class="snodes">${sh.nodes.map(n => `<span class="${n.a ? 'on' : ''}" title="${esc(n.n)}">${icoImg(n.i, '', n.n)}</span>`).join('')}</div></div>`).join('')}</div>`) : ''}
+    ${v.extra?.length && !v.extra[0].items ? sec('Altro', `<div class="chips">${v.extra.map(x => chip(x)).join('')}</div>`) : ''}
+    ${v.stats?.length ? sec('Priorità delle statistiche', `<div class="bstats">${v.stats.map(st => `<div class="bstat"><div class="h">${icoImg(st.i, '', st.slot)}<b>${esc(TN(view, st.slot, ''))}</b></div><ol>${st.list.map(x => `<li class="${x.tf ? 'tf' : ''}">${x.ga ? '<i class="ga" title="Affisso superiore">★</i>' : ''}${x.tp ? '<i class="tp" title="Tempra">⚒</i>' : ''}${x.tf ? '<i class="tfi" title="Trasfigurazione">✦</i>' : ''}<span>${esc(x.t)}</span></li>`).join('')}</ol></div>`).join('')}</div>`) : ''}
+    ${view.filters?.length ? sec('Filtri loot · da importare in gioco', `<div class="grid" style="gap:8px">${view.filters.map((f, i) => `<div class="filter"><b>${esc(f.name)}</b><button class="btn sm" data-f="${i}">${IC.copy} Copia codice</button></div>`).join('')}</div>`) : ''}
+    <div class="row" style="margin-top:20px;gap:8px;flex-wrap:wrap">${v.skills?.length ? `<button class="btn pri" id="mkmacro">${IC.keyb} Suggerisci profilo macro</button>` : ''}${view.plannerId ? `<button class="btn ghost" id="planner">${IC.ext} Planner Maxroll</button>` : ''}</div>`;
+}
+
+function notesHTML(view, notes) {
+  if (!notes?.length) return '<div class="muted">Nessuna nota.</div>';
+  return notes.map(line => {
+    if (!Array.isArray(line)) return '';
+    if (line.length === 1 && line[0]?.b) return `<h3>${esc(line[0].b)}</h3>`;
+    return `<p>${line.map(x => typeof x === 'string' ? esc(x) : (x.b ? `<b>${esc(x.b)}</b>` : `<span class="nchip t-${x.t || 'u'}">${x.i ? icoImg(x.i, '', x.n) : ''}${esc(TN(view, x.n, ''))}</span>`)).join('')}</p>`;
+  }).join('');
+}
+
+// visore con trascinamento e zoom (albero, paragon, piani di guerra)
+function bindViewer(box) {
+  $$('.viewer', box).forEach(vw => {
+    const inner = $('.vin', vw), W = +vw.dataset.w, H = +vw.dataset.h;
+    let s = Math.min(vw.clientWidth / W, vw.clientHeight / H, 1) * .96, x = (vw.clientWidth - W * s) / 2, y = (vw.clientHeight - H * s) / 2;
+    const ap = () => { inner.style.transform = `translate(${x}px,${y}px) scale(${s})`; };
+    ap();
+    vw.onwheel = e => { e.preventDefault(); const r = vw.getBoundingClientRect(), mx = e.clientX - r.left, my = e.clientY - r.top; const ns = Math.max(.08, Math.min(2.5, s * (e.deltaY < 0 ? 1.15 : 1 / 1.15))); x = mx - (mx - x) * ns / s; y = my - (my - y) * ns / s; s = ns; ap(); };
+    vw.onpointerdown = e => { if (e.button !== 0) return; vw.setPointerCapture(e.pointerId); const sx = e.clientX - x, sy = e.clientY - y; vw.classList.add('drag'); vw.onpointermove = ev => { x = ev.clientX - sx; y = ev.clientY - sy; ap(); }; vw.onpointerup = () => { vw.onpointermove = null; vw.classList.remove('drag'); }; };
+    $('.vfit', vw.parentElement)?.addEventListener('click', () => { s = Math.min(vw.clientWidth / W, vw.clientHeight / H, 1) * .96; x = (vw.clientWidth - W * s) / 2; y = (vw.clientHeight - H * s) / 2; ap(); });
+  });
+}
+const NSIZE = { c: 64, l: 74, d: 52, s: 46, k: 18 };
+function treeView(view, t, kind) {
+  if (!t?.nodes?.length) return '<div class="muted">Albero non disponibile.</div>';
+  const pad = 60;
+  let minX = 1e9, minY = 1e9, maxX = -1e9, maxY = -1e9;
+  t.nodes.forEach(n => { minX = Math.min(minX, n[0]); minY = Math.min(minY, n[1]); maxX = Math.max(maxX, n[0]); maxY = Math.max(maxY, n[1]); });
+  const W = maxX - minX + pad * 2, H = maxY - minY + pad * 2, ox = pad - minX, oy = pad - minY;
+  const lines = (t.lines || []).map(l => `<line x1="${l[0] + ox}" y1="${l[1] + oy}" x2="${l[2] + ox}" y2="${l[3] + oy}" class="${l[4] ? 'on' : ''}"/>`).join('');
+  const nodes = t.nodes.map(n => {
+    const [x, y, k, alt, icon, bg, rank, on] = n, sz = NSIZE[k] || 46;
+    const got = k === 'c' ? on : (rank ? !/^0\//.test(rank) : on);
+    return `<div class="tn k${k} ${got ? 'on' : ''}" style="left:${x + ox}px;top:${y + oy}px;width:${sz}px;height:${sz}px" title="${esc(TN(view, alt, ''))}${rank ? ' · ' + esc(rank) : ''}">${bg ? `<img class="tbg" src="${esc(IMG(bg))}" alt="">` : ''}${icon && k !== 'k' ? `<img class="tic" src="${esc(IMG(icon))}" alt="">` : ''}${rank && got ? `<i>${esc(rank)}</i>` : ''}</div>`;
+  }).join('');
+  const picked = t.nodes.filter(n => n[2] !== 'c' && n[2] !== 'k' && n[3] && n[6] && !/^0\//.test(n[6]));
+  const groups = {};
+  picked.forEach(n => { (groups[n[2] === 'l' ? 'big' : 'small'] ||= []).push(n); });
+  return `<div class="vwrap"><div class="viewer" data-w="${W}" data-h="${H}"><div class="vin" style="width:${W}px;height:${H}px"><svg class="vlines" width="${W}" height="${H}">${lines}</svg>${nodes}</div></div><button class="btn sm vfit">Adatta alla finestra</button>${t.remaining && t.remaining !== '0' ? `<span class="vrem">Punti rimasti: ${esc(t.remaining)}</span>` : ''}</div>
+    <div class="bsec"><div class="lbl">${kind === 'war' ? 'Nodi scelti' : 'Abilità e passive scelte'} · ${picked.length}</div><div class="chips">${picked.map(n => `<div class="chipi ${n[2] === 'l' ? 'big' : ''}">${icoImg(n[4], '', n[3])}<span>${esc(TN(view, n[3], ''))}</span><em>${esc(n[6])}</em></div>`).join('')}</div></div>`;
+}
+const PTILE = 60;
+const PRAR = { Common: '#5b534e', Magic: '#4f8bff', Rare: '#ffd24a', Legendary: '#ff7a2a', Glyph: '#c07bff', Gate: '#ddd' };
+function paragonView(view, p) {
+  const bs = p.boards;
+  const pts = [];
+  bs.forEach(b => { pts.push([b.x, b.y], [b.x + 21 * PTILE, b.y + 21 * PTILE]); });
+  const minX = Math.min(...pts.map(q => q[0])) - 40, minY = Math.min(...pts.map(q => q[1])) - 70, maxX = Math.max(...pts.map(q => q[0])) + 40, maxY = Math.max(...pts.map(q => q[1])) + 40;
+  const W = maxX - minX, H = maxY - minY;
+  const boards = bs.map((b, bi) => `<div class="pbd" style="left:${b.x - minX}px;top:${b.y - minY}px;transform:rotate(${b.r}deg)">${b.tiles.map(t => { const [r, c, a, alt, ic, rar] = t; return `<div class="pt ${a ? 'on' : ''}" style="left:${c * PTILE}px;top:${r * PTILE}px;--rc:${PRAR[rar] || '#555'};transform:rotate(${-b.r}deg)" title="${esc(alt)}${rar ? ' · ' + esc(rar) : ''}">${ic ? `<img src="${esc(IMG(SA + 'Paragon/' + (a && !/_active\.png$/.test(ic) ? ic.replace(/\.png$/, '_active.png') : ic)))}" alt="">` : ''}</div>`; }).join('')}</div><div class="pbl" style="left:${b.x - minX + 21 * PTILE / 2}px;top:${b.y - minY - 4}px"><b>${bi + 1}</b> ${esc(TN(view, b.n, ''))}${b.g ? ` <em>(${esc(TN(view, b.g, ''))})</em>` : ''}</div>`).join('');
+  return `<div class="vwrap"><div class="viewer tall" data-w="${W}" data-h="${H}"><div class="vin" style="width:${W}px;height:${H}px">${boards}</div></div><button class="btn sm vfit">Adatta alla finestra</button>${p.points ? `<span class="vrem">Punti: ${esc(p.points)}</span>` : ''}</div>
+    <div class="bsec"><div class="lbl">Tavole e glifi</div><div class="pblist">${bs.map((b, i) => `<div class="pbi"><span class="n">${i + 1}</span><div><b>${esc(TN(view, b.n, ''))}</b>${b.g ? `<small>Glifo: ${esc(TN(view, b.g, ''))}</small>` : ''}${b.s?.length ? `<small class="muted">${esc(b.s.join(' · '))}</small>` : ''}${b.r ? `<small class="muted">Rotazione ${b.r}°</small>` : ''}</div></div>`).join('')}</div></div>`;
+}
+function mxParagonHTML(v) {
+  const ui = S.ui.build;
+  if (!v.mxParagon?.length) return '<div class="muted">Paragon non disponibile.</div>';
+  if (!v.mxParagon[ui.pstep || 0]) ui.pstep = 0;
+  return `<div class="row" style="margin:6px 0 4px"><div class="seg" id="pstep">${v.mxParagon.map((st, i) => `<button data-s="${i}" class="${i === (ui.pstep || 0) ? 'on' : ''}">${esc(st.name || 'Fase ' + (i + 1))}</button>`).join('')}</div><span class="sp"></span><button class="btn" id="toov">Paragon nell'overlay in gioco</button></div>${PLEGEND}<div class="pboards" id="pboards"></div>`;
+}
+function bindMxParagon(box, view, v, b) {
+  const ui = S.ui.build;
+  if (!v.mxParagon?.length) return;
+  const drawSteps = () => { const st = v.mxParagon[ui.pstep || 0]; $('#pboards', box).innerHTML = st.boards.map((bd, i) => boardCard(bd, i)).join(''); $$('#pboards canvas', box).forEach((c, i) => drawBoard(c, st.boards[i])); };
+  drawSteps();
+  $$('#pstep button', box).forEach(x => x.onclick = () => { ui.pstep = +x.dataset.s; $$('#pstep button', box).forEach(y => y.classList.toggle('on', y === x)); drawSteps(); });
+  $('#toov', box).onclick = async () => { const o = { ...(S.st.settings.overlay || {}), planner: view.plannerId, title: b.title, variant: ui.variant, step: ui.pstep || 0, board: 0, enabled: true, paragon: { ...(S.st.settings.overlay?.paragon || {}), on: true } }; try { S.st.settings = await post('/api/settings', { overlay: o }); toast('Paragon impostato nell\'overlay'); } catch (e) { toast(e.message); } };
+}
+const MERCL = { Mercenary: 'Mercenario', Reinforcement: 'Rinforzo', Skill: 'Abilità', Opportunity: 'Opportunità' };
+function mercView(view, m) {
+  if (!m) return '<div class="muted">Nessun mercenario indicato.</div>';
+  return `<div class="mslots">${(m.slots || []).map(s => `<div class="mslot"><div class="lbl">${esc(MERCL[s.l] || s.l)}</div><div class="mico">${icoImg(s.i, '', s.n)}</div><b>${esc(TN(view, s.n, ''))}</b></div>`).join('')}</div>
+    ${m.items?.length ? `<div class="bsec"><div class="lbl">Abilità del mercenario scelte · ${m.items.length}</div><div class="chips">${m.items.map(x => `<div class="chipi ${x.l ? 'big' : ''}">${icoImg(x.i, '', x.n)}<span>${esc(TN(view, x.n, ''))}</span></div>`).join('')}</div></div>` : ''}`;
+}
+const WARIT = { Whispers: 'Sussurri', 'Nightmare Dungeons': 'Spedizioni dell\'incubo', Helltides: 'Maree infernali', Undercity: 'Sottocittà', 'Boss Lairs': 'Covi dei boss', 'Infernal Hordes': 'Orde infernali', Pits: 'Fosse' };
+function warView(view, war) {
+  const ui = S.ui.build;
+  const list = (war || []).filter(w => w.tree);
+  if (!list.length) return '<div class="muted">Nessun piano di guerra indicato.</div>';
+  if (!list[ui.war || 0]) ui.war = 0;
+  const w = list[ui.war || 0];
+  return `<div class="wtabs seg">${list.map((x, i) => `<button data-w="${i}" class="${i === (ui.war || 0) ? 'on' : ''}">${icoImg(x.i, 'ti', x.n)}${esc(lang() === 'en' ? x.n : (WARIT[x.n] || x.n))}</button>`).join('')}</div>${treeView(view, w.tree, 'war')}`;
 }
 
 // ---------------------------------------------------------------- paragon

@@ -90,3 +90,41 @@ func serveTile(w http.ResponseWriter, r *http.Request) {
 }
 
 func mapFoundPath() string { return filepath.Join(dataDir, "mappa_trovati.json") }
+
+// icone del gioco (sunderarmor.com, le stesse di D4Builds), tenute in cache sul PC: /api/img?u=...
+func serveImg(w http.ResponseWriter, r *http.Request) {
+	u := r.URL.Query().Get("u")
+	if !strings.HasPrefix(u, "https://sunderarmor.com/DIABLO4/") || len(u) > 400 {
+		http.NotFound(w, r)
+		return
+	}
+	dir := filepath.Join(dataDir, "cache", "img")
+	p := filepath.Join(dir, hashURL(u)+filepath.Ext(strings.SplitN(u, "?", 2)[0]))
+	b, err := os.ReadFile(p)
+	if err != nil {
+		if fileExists(p + ".404") {
+			http.NotFound(w, r)
+			return
+		}
+		b, err = mapGet(u, "https://d4builds.gg/")
+		tileMu.Lock()
+		os.MkdirAll(dir, 0o755)
+		if err != nil {
+			if strings.Contains(err.Error(), "404") || strings.Contains(err.Error(), "403") {
+				os.WriteFile(p+".404", nil, 0o644)
+			}
+			tileMu.Unlock()
+			http.NotFound(w, r)
+			return
+		}
+		os.WriteFile(p, b, 0o644)
+		tileMu.Unlock()
+	}
+	ct := http.DetectContentType(b)
+	if strings.HasSuffix(strings.ToLower(u), ".svg") {
+		ct = "image/svg+xml"
+	}
+	w.Header().Set("Content-Type", ct)
+	w.Header().Set("Cache-Control", "max-age=2592000")
+	w.Write(b)
+}

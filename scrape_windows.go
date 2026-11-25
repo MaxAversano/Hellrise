@@ -20,9 +20,12 @@ import (
 )
 
 type scrapeJob struct {
-	url   string
-	ready string // espressione JavaScript: vera quando la pagina è pronta
-	res   chan scrapeRes
+	url     string
+	ready   string // espressione JavaScript: vera quando la pagina è pronta
+	start   string // script da avviare a pagina pronta (facoltativo)
+	poll    string // espressione che restituisce il risultato (stringa) o null
+	timeout time.Duration
+	res     chan scrapeRes
 }
 
 type scrapeRes struct {
@@ -41,11 +44,16 @@ func browserDump(u string) (string, error) {
 }
 
 func browserRead(u, ready string) (string, error) {
+	return browserRun(u, ready, "", "", 35*time.Second)
+}
+
+// browserRun apre la pagina, aspetta che "ready" sia vera, avvia "start" e attende che "poll" restituisca una stringa
+func browserRun(u, ready, start, poll string, timeout time.Duration) (string, error) {
 	scrapeOnce.Do(func() { go scrapeThread() })
 	res := make(chan scrapeRes, 1)
 	select {
-	case scrapeCh <- scrapeJob{u, ready, res}:
-	case <-time.After(90 * time.Second):
+	case scrapeCh <- scrapeJob{u, ready, start, poll, timeout, res}:
+	case <-time.After(timeout + 3*time.Minute):
 		return "", fmt.Errorf("lettore occupato")
 	}
 	r := <-res
@@ -167,37 +175,67 @@ func scrapeThread() {
 		result, got = utf16At(str), true
 		return 0
 	})
+	run := func(js string) (string, bool) {
+		sp, _ := syscall.UTF16PtrFromString(js)
+		got = false
+		comCall(wv, 29, uintptr(unsafe.Pointer(sp)), uintptr(unsafe.Pointer(execH))) // ExecuteScript
+		w := time.Now().Add(5 * time.Second)
+		for !got && time.Now().Before(w) {
+			pump()
+			time.Sleep(10 * time.Millisecond)
+		}
+		if !got || result == "" || result == "null" {
+			return "", false
+		}
+		var s string
+		if json.Unmarshal([]byte(result), &s) != nil {
+			return "", false
+		}
+		return s, true
+	}
+	wait := func(d time.Duration) {
+		end := time.Now().Add(d)
+		for time.Now().Before(end) {
+			pump()
+			time.Sleep(10 * time.Millisecond)
+		}
+	}
 	for job := range scrapeCh {
 		u, _ := syscall.UTF16PtrFromString(job.url)
 		comCall(wv, 5, uintptr(unsafe.Pointer(u))) // Navigate
-		script, _ := syscall.UTF16PtrFromString("(function(){try{if(!(" + job.ready + "))return null;return document.documentElement.outerHTML;}catch(e){return null}})()")
-		var html string
-		end := time.Now().Add(35 * time.Second)
-		next := time.Now().Add(1200 * time.Millisecond)
-		for time.Now().Before(end) && html == "" {
-			pump()
-			if time.Now().After(next) {
-				got = false
-				comCall(wv, 29, uintptr(unsafe.Pointer(script)), uintptr(unsafe.Pointer(execH))) // ExecuteScript
-				w := time.Now().Add(5 * time.Second)
-				for !got && time.Now().Before(w) {
-					pump()
-					time.Sleep(10 * time.Millisecond)
-				}
-				if got && result != "" && result != "null" {
-					var s string
-					if json.Unmarshal([]byte(result), &s) == nil {
-						html = s
-					}
-				}
-				next = time.Now().Add(700 * time.Millisecond)
-			}
-			time.Sleep(10 * time.Millisecond)
+		wait(1200 * time.Millisecond)
+		readyJS := "(function(){try{return (" + job.ready + ")?'1':null}catch(e){return null}})()"
+		if job.start == "" {
+			readyJS = "(function(){try{if(!(" + job.ready + "))return null;return document.documentElement.outerHTML;}catch(e){return null}})()"
 		}
-		if html == "" {
+		var out string
+		end := time.Now().Add(35 * time.Second)
+		for time.Now().Before(end) && out == "" {
+			if s, ok := run(readyJS); ok && s != "" {
+				out = s
+				break
+			}
+			wait(700 * time.Millisecond)
+		}
+		if out == "" {
 			job.res <- scrapeRes{"", fmt.Errorf("pagina non pronta entro 35 secondi")}
 			continue
 		}
-		job.res <- scrapeRes{html, nil}
+		if job.start != "" {
+			run("(function(){try{" + job.start + "}catch(e){}return null})()")
+			out = ""
+			end = time.Now().Add(job.timeout)
+			for time.Now().Before(end) && out == "" {
+				wait(1000 * time.Millisecond)
+				if s, ok := run("(function(){try{return (" + job.poll + ")}catch(e){return null}})()"); ok && s != "" {
+					out = s
+				}
+			}
+			if out == "" {
+				job.res <- scrapeRes{"", fmt.Errorf("lettura non finita entro %v", job.timeout)}
+				continue
+			}
+		}
+		job.res <- scrapeRes{out, nil}
 	}
 }

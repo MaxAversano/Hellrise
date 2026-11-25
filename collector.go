@@ -241,8 +241,13 @@ func collect() {
 		details := map[string]*PBuild{}
 		for _, u := range urls {
 			setStep(fmt.Sprintf("D4Builds · stagione %d", n), -1, -1)
-			d, err := d4bBuildDetail(u)
+			var d *PBuild
+			f, err := d4bFullRead(u)
 			if err == nil {
+				d = f.slim()
+				if e := uploadFull(u, f); e != nil {
+					log.Printf("raccolta: d4builds completa %s: %v", u, e)
+				}
 				details[keyURL(u)] = d
 			} else {
 				log.Printf("raccolta: d4builds %s: %v", u, err)
@@ -254,7 +259,7 @@ func collect() {
 				}
 				details = map[string]*PBuild{}
 			}
-			time.Sleep(1500 * time.Millisecond)
+			time.Sleep(500 * time.Millisecond)
 		}
 		if len(details) > 0 {
 			uploadData("d4bDetails", n, details)
@@ -267,6 +272,46 @@ func collect() {
 	log.Printf("raccolta: finita, %d pagine lette su %d", collectState.Got, collectState.Total)
 	collectState.Unlock()
 	go remoteRefresh()
+}
+
+func uploadFull(u string, f *D4Full) error {
+	base, tok := remoteBase()
+	b, err := json.Marshal(f)
+	if err != nil {
+		return err
+	}
+	q := fmt.Sprintf("%sapp.php?upload=full&id=%s&k=%s", base, hashURL(keyURL(u)), url.QueryEscape(tok))
+	resp, err := (&http.Client{Timeout: 2 * time.Minute}).Post(q, "application/json", bytes.NewReader(b))
+	if err != nil {
+		return err
+	}
+	defer resp.Body.Close()
+	body, _ := io.ReadAll(resp.Body)
+	if resp.StatusCode != 200 || strings.TrimSpace(string(body)) != "ok" {
+		return fmt.Errorf("HTTP %d %s", resp.StatusCode, strings.TrimSpace(string(body)))
+	}
+	os.WriteFile(cacheFile("full_"+hashURL(keyURL(u))+".json"), b, 0o644)
+	return nil
+}
+
+// build completa dal server, tenuta in cache per 3 ore (e usata anche se il server non risponde)
+func serverFull(u string) []byte {
+	id := hashURL(keyURL(u))
+	p := cacheFile("full_" + id + ".json")
+	if st, err := os.Stat(p); err == nil && time.Since(st.ModTime()) < 3*time.Hour {
+		if b, err := os.ReadFile(p); err == nil {
+			return b
+		}
+	}
+	b, err := remoteGet("what=full&id=" + id)
+	if err == nil && len(b) > 2 && b[0] == '{' {
+		os.WriteFile(p, b, 0o644)
+		return b
+	}
+	if b, err := os.ReadFile(p); err == nil {
+		return b
+	}
+	return nil
 }
 
 // dettaglio già raccolto sul server (in una delle stagioni)

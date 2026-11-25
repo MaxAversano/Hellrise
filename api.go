@@ -116,6 +116,32 @@ func setupAPI(mux *http.ServeMux) {
 		jsonOut(w, b)
 	})
 
+	// build D4Builds completa (tutte le schede), già pronta sul server
+	mux.HandleFunc("/api/d4bfull", func(w http.ResponseWriter, r *http.Request) {
+		u := keyURL(r.URL.Query().Get("u"))
+		if !strings.HasPrefix(u, "https://d4builds.gg/builds/") {
+			jsonErr(w, 400, "indirizzo non valido")
+			return
+		}
+		u += "/"
+		if b := serverFull(u); b != nil {
+			w.Header().Set("Content-Type", "application/json; charset=utf-8")
+			w.Write(b)
+			return
+		}
+		if !isCollector() {
+			jsonErr(w, 404, "questa build arriverà con il prossimo aggiornamento dei dati")
+			return
+		}
+		f, err := d4bFullRead(u)
+		if err != nil {
+			jsonErr(w, 502, "D4Builds: "+err.Error())
+			return
+		}
+		go uploadFull(u, f)
+		jsonOut(w, f)
+	})
+
 	mux.HandleFunc("/api/guide", func(w http.ResponseWriter, r *http.Request) {
 		u := r.URL.Query().Get("u")
 		if strings.HasPrefix(u, "https://") {
@@ -158,6 +184,7 @@ func setupAPI(mux *http.ServeMux) {
 		w.Write(b)
 	})
 	mux.HandleFunc("/api/tile/", serveTile)
+	mux.HandleFunc("/api/img", serveImg)
 	mux.HandleFunc("/api/mapfound", func(w http.ResponseWriter, r *http.Request) {
 		found := map[string]bool{}
 		readJSON(mapFoundPath(), &found)
