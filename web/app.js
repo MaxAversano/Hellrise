@@ -304,7 +304,7 @@ const PCOL = { 1: ['#2a2422', '#d8cfc8'], 2: ['#1c2a44', '#4f8bff'], 3: ['#3a321
 const PLEGEND = `<div class="plegend">${[['Normale', 1], ['Magica', 2], ['Rara', 3], ['Leggendaria', 4], ['Glifo', 6], ['Porta', 5]].map(([l, k]) => `<span><i style="background:${PCOL[k][1]}"></i>${l}</span>`).join('')}<span><i style="background:${PCOL[1][0]};border:1px solid #555"></i>non presa</span></div>`;
 function boardCard(bd, i) {
   const leg = (bd.legend || []).map(x => { const [a, e] = x.split('|'); return nm(a, e); })[0];
-  return `<div class="pboard" title="Ruota la tavola come indicato prima di posizionarla"><div class="h"><span class="n">${i + 1}</span><b>${esc(nm(bd.name, bd.en))}</b></div><canvas width="${bd.width * 8}" height="${bd.width * 8}"></canvas><small>${bd.rotation ? `Ruota ${bd.rotation * 90}°` : 'Nessuna rotazione'} · ${bd.points} punti</small>${bd.glyph ? `<small>Glifo: <b style="color:var(--ink)">${esc(nm(bd.glyph, bd.glyphEn))}</b>${bd.glyphLvl ? ' liv. ' + bd.glyphLvl : ''}</small>` : ''}${leg ? `<small style="color:#ff9a52">${esc(leg)}</small>` : ''}</div>`;
+  return `<div class="pboard" title="Ruota la tavola come indicato prima di posizionarla"><div class="h"><span class="n">${i + 1}</span><b>${esc(nm(bd.name, bd.en))}</b></div><canvas width="${bd.width * 8}" height="${bd.width * 8}"></canvas><small>${bd.rotation ? `Rotazione Maxroll: ${bd.rotation} ${bd.rotation === 1 ? 'scatto' : 'scatti'}` : 'Nessuna rotazione'} · ${bd.points} punti</small>${bd.glyph ? `<small>Glifo: <b style="color:var(--ink)">${esc(nm(bd.glyph, bd.glyphEn))}</b>${bd.glyphLvl ? ' liv. ' + bd.glyphLvl : ''}</small>` : ''}${leg ? `<small style="color:#ff9a52">${esc(leg)}</small>` : ''}</div>`;
 }
 function drawBoard(c, bd) {
   const g = c.getContext('2d'), w = bd.width, s = c.width / w;
@@ -554,18 +554,23 @@ PAGES.overlay = async main => {
         ${tg('enabled', 'Overlay attivo', 'Compare solo quando Diablo IV è in primo piano')}
         ${tg('always', 'Mostralo anche fuori dal gioco', 'Utile per provarlo e sistemare le posizioni')}
         <label class="field"><span>Dimensione · <b id="scv">${Math.round((o.scale || 1) * 100)}%</b></span><input type="range" min="0.6" max="1.6" step="0.05" value="${o.scale || 1}" data-o="scale"></label>
-        <div class="keys" style="margin-top:6px"><span class="keycap">Ctrl+Shift+O</span><span>mostra o nasconde tutto</span><span class="keycap">Ctrl+Shift+E</span><span>sposta i riquadri col mouse (poi di nuovo per finire)</span><span class="keycap">Ctrl+Shift+T</span><span>timer sì/no</span><span class="keycap">Ctrl+Shift+P</span><span>paragon sì/no</span><span class="keycap">Ctrl+Shift+← →</span><span>tavola paragon precedente / successiva</span><span class="keycap">Ctrl+Shift+↑ ↓</span><span>fase del paragon</span></div>
+        <div class="keys" style="margin-top:6px"><span class="keycap">Ctrl+Shift+O</span><span>mostra o nasconde tutto</span><span class="keycap">Ctrl+Shift+E</span><span>sposta i riquadri col mouse (poi di nuovo per finire)</span><span class="keycap">Ctrl+Shift+T</span><span>timer sì/no</span><span class="keycap">Ctrl+Shift+P</span><span>paragon sì/no</span><span class="keycap">Ctrl+Shift+← →</span><span>tavola paragon precedente / successiva</span><span class="keycap">Ctrl+Shift+↑ ↓</span><span>fase del paragon</span><span class="keycap">Ctrl+Shift+R / Q</span><span>ruota la tavola in senso orario / antiorario (la scelta resta salvata)</span><span class="keycap">Ctrl+Shift+M</span><span>riquadro ↔ sovrapposto alla tavola del gioco</span><span class="keycap">Ctrl+Shift+D</span><span>rileva la grandezza delle caselle dallo schermo</span><span class="keycap">Ctrl+Shift+ + −</span><span>caselle più grandi / più piccole (o rotellina mentre sposti)</span></div>
       </div>
       <div class="glass card"><h2>Timer degli eventi</h2>
         ${tg('timers.on', 'Mostra i timer')}
         ${tg('tBoss', 'Boss del mondo')}${tg('tHelltide', 'Marea infernale')}${tg('tLegion', 'Legione')}
       </div>
       <div class="glass card" style="grid-column:1/-1"><h2>Guida paragon</h2>
-        ${tg('paragon.on', 'Mostra il paragon', 'Tavole nell\'ordine della build, già ruotate come vanno messe, con le caselle da prendere')}
+        ${tg('paragon.on', 'Mostra il paragon', 'Tavole nell\'ordine della build con le caselle da prendere')}
+        <div class="row wrap" style="gap:14px;align-items:flex-start;margin:4px 0 10px">
+          <div class="field"><span>Come mostrarlo</span><div class="seg" id="ovmode"><button data-m="panel" class="${(o.mode || 'panel') === 'panel' ? 'on' : ''}">Riquadro con la tavola</button><button data-m="align" class="${o.mode === 'align' ? 'on' : ''}">Sovrapposto alla tavola del gioco</button></div></div>
+          <div class="muted" style="font-size:12.5px;flex:1;min-width:260px;line-height:1.55">${o.mode === 'align' ? `Sovrapposto: cornici colorate sulle caselle da prendere, sopra la tavola vera. Apri il paragon in gioco, premi <b>Ctrl+Shift+D</b> per riconoscere la grandezza delle caselle (ora ${Math.round(o.cellPx || 40)} px), poi <b>Ctrl+Shift+E</b> per trascinare la griglia sopra la tavola. La rotazione la fai tu con <b>Ctrl+Shift+R / Q</b>.` : 'Riquadro: la tavola disegnata in un angolo dello schermo, da seguire a occhio. La rotazione indicata è quella di Maxroll; con Ctrl+Shift+R / Q la giri come preferisci.'}</div>
+        </div>
         <div id="ovpar"></div>
       </div>
     </div></div>`;
   const save = async patch => { const cur = { ...(S.st.settings.overlay || {}) }; for (const [k, v] of Object.entries(patch)) { const ks = k.split('.'); if (ks.length === 2) cur[ks[0]] = { ...(cur[ks[0]] || {}), [ks[1]]: v }; else cur[k] = v; } try { S.st.settings = await post('/api/settings', { overlay: cur }); } catch (e) { toast(e.message); } };
+  $$('#ovmode button', main).forEach(b => b.onclick = async () => { await save({ mode: b.dataset.m }); PAGES.overlay(main); });
   $$('[data-o]', main).forEach(inp => {
     if (inp.type === 'range') { inp.oninput = () => $('#scv').textContent = Math.round(inp.value * 100) + '%'; inp.onchange = () => save({ scale: +inp.value }); return; }
     inp.onchange = () => save({ [inp.dataset.o]: inp.checked });

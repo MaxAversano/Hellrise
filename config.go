@@ -37,20 +37,25 @@ type OWidget struct {
 
 // overlay in gioco (Diablo IV in finestra senza bordi)
 type OverlaySet struct {
-	Enabled   bool    `json:"enabled"`
-	Always    bool    `json:"always"` // mostralo anche fuori dal gioco (per provarlo)
-	Scale     float64 `json:"scale"`
-	Timers    OWidget `json:"timers"`
-	TBoss     bool    `json:"tBoss"`
-	THelltide bool    `json:"tHelltide"`
-	TLegion   bool    `json:"tLegion"`
-	Paragon   OWidget `json:"paragon"`
-	Planner   string  `json:"planner"` // planner Maxroll della build scelta
-	Title     string  `json:"title"`
-	Variant   int     `json:"variant"`
-	Step      int     `json:"step"`
-	Board     int     `json:"board"`
-	Cell      int     `json:"cell"` // lato di una casella in pixel (a 1080p)
+	Enabled   bool           `json:"enabled"`
+	Always    bool           `json:"always"` // mostralo anche fuori dal gioco (per provarlo)
+	Scale     float64        `json:"scale"`
+	Timers    OWidget        `json:"timers"`
+	TBoss     bool           `json:"tBoss"`
+	THelltide bool           `json:"tHelltide"`
+	TLegion   bool           `json:"tLegion"`
+	Paragon   OWidget        `json:"paragon"`
+	Planner   string         `json:"planner"` // planner Maxroll della build scelta
+	Title     string         `json:"title"`
+	Variant   int            `json:"variant"`
+	Step      int            `json:"step"`
+	Board     int            `json:"board"`
+	Cell      int            `json:"cell"`   // lato di una casella in pixel (a 1080p), riquadro
+	Mode      string         `json:"mode"`   // "panel" riquadro con la tavola | "align" sovrapposto alla tavola del gioco
+	CellPx    float64        `json:"cellPx"` // passo delle caselle sullo schermo in pixel (modalità sovrapposta)
+	AlignX    float64        `json:"alignX"` // angolo in alto a sinistra della griglia (frazione dello schermo)
+	AlignY    float64        `json:"alignY"`
+	Rot       map[string]int `json:"rot"` // rotazione scelta da te per ogni tavola (quarti di giro)
 }
 
 func defaultSettings() Settings {
@@ -59,7 +64,7 @@ func defaultSettings() Settings {
 		Notifications: true, NotifyBoss: true, NotifyHelltide: false, NotifyLegion: false, NotifyBefore: 5,
 		Blur: true, Motion: true, Accent: "ember", Lang: "it",
 		Overlay: OverlaySet{Enabled: true, Scale: 1, Timers: OWidget{On: true, X: 0.012, Y: 0.28}, TBoss: true, THelltide: true, TLegion: true,
-			Paragon: OWidget{On: true, X: 0.69, Y: 0.14}, Cell: 13},
+			Paragon: OWidget{On: true, X: 0.69, Y: 0.14}, Cell: 13, Mode: "panel", CellPx: 40, AlignX: 0.3, AlignY: 0.2},
 	}
 }
 

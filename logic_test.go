@@ -37,3 +37,34 @@ func TestEvents(t *testing.T) {
 		t.Logf("%s %d-%d %s", e.Kind, e.Start, e.End, e.Title)
 	}
 }
+
+func TestPeriod(t *testing.T) {
+	// griglia di caselle quadrate da 37 px (bordo chiaro), con rumore
+	w, h := 700, 500
+	g := make([]float64, w*h)
+	for y := 0; y < h; y++ {
+		for x := 0; x < w; x++ {
+			v := 20.0
+			cx, cy := (x+5)%37, (y+11)%37
+			if cx >= 4 && cx <= 31 && cy >= 4 && cy <= 31 && (x/37+y/37)%3 != 0 {
+				v = 120
+			}
+			v += float64((x*7919+y*104729)%23) - 11
+			g[y*w+x] = v
+		}
+	}
+	cols := make([]float64, w-1)
+	for y := 0; y < h; y++ {
+		for x := 0; x < w-1; x++ {
+			cols[x] += absf(g[y*w+x+1] - g[y*w+x])
+		}
+	}
+	p, r := dominantPeriod(cols, 14, 130)
+	t.Logf("periodo %d forza %.2f", p, r)
+	if p != 37 {
+		t.Fatalf("atteso 37, trovato %d", p)
+	}
+	if rotateGrid("abcd", 2, 1) != "cadb" {
+		t.Fatalf("rotazione: %s", rotateGrid("abcd", 2, 1))
+	}
+}
