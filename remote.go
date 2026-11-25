@@ -28,13 +28,13 @@ type SeasonInfo struct {
 }
 
 type RemoteIndex struct {
-	Live      int               `json:"live"`
-	Seasons   []SeasonInfo      `json:"seasons"`
-	LastRun   int64             `json:"lastRun"`
-	Runs      int               `json:"runs"`
-	Errors    map[string]string `json:"errors"`
-	Events    json.RawMessage   `json:"events"`
-	PatchesAt int64             `json:"patchesAt"`
+	Live      int             `json:"live"`
+	Seasons   []SeasonInfo    `json:"seasons"`
+	LastRun   int64           `json:"lastRun"`
+	Runs      int             `json:"runs"`
+	Errors    flexMap         `json:"errors"`
+	Events    json.RawMessage `json:"events"`
+	PatchesAt int64           `json:"patchesAt"`
 }
 
 var remote struct {
@@ -327,4 +327,23 @@ func localUpdateLoop() {
 			}
 		}
 	}
+}
+
+// PHP manda [] invece di {} quando non ci sono errori
+type flexMap map[string]string
+
+func (m *flexMap) UnmarshalJSON(b []byte) error {
+	var x map[string]string
+	if json.Unmarshal(b, &x) == nil {
+		*m = x
+	} else {
+		*m = flexMap{}
+	}
+	return nil
+}
+
+func remoteLive() int {
+	remote.Lock()
+	defer remote.Unlock()
+	return remote.index.Live
 }

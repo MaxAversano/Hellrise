@@ -177,7 +177,50 @@ func seasonView(n int) *SeasonView {
 	if json.Unmarshal(raw, &s) != nil {
 		return nil
 	}
+	// Mobalytics scaricato dal PC (il server riceve 403)
+	mc := mobaSnapshot()
+	live := remoteLive()
+	if len(s.Mobalytics) == 0 {
+		for _, b := range mc.Builds {
+			if b.Season == n || (b.Season == 0 && n == live) {
+				s.Mobalytics = append(s.Mobalytics, struct {
+					Name     string   `json:"name"`
+					Cls      string   `json:"cls"`
+					Type     string   `json:"type"`
+					Author   string   `json:"author"`
+					URL      string   `json:"url"`
+					Verified bool     `json:"verified"`
+					Likes    int      `json:"likes"`
+					Updated  int64    `json:"updated"`
+					Activity []string `json:"activity"`
+				}{b.Name, b.Cls, b.Type, b.Author, b.URL, b.Verified, b.Likes, b.Updated, b.Activity})
+			}
+		}
+	}
+	if len(s.BossInfo.Bosses) == 0 && len(mc.Bosses) > 0 && n <= live+1 {
+		s.BossInfo.Source = "mobalytics.gg"
+		for _, b := range mc.Bosses {
+			s.BossInfo.Bosses = append(s.BossInfo.Bosses, struct {
+				Name  string   `json:"name"`
+				Lines []string `json:"lines"`
+			}{b.Name, b.Lines})
+		}
+	}
+	// stagione nuova senza tabelle loot (non ancora uscita): usa quelle della precedente
+	prevLoot := false
+	if len(s.Loot.Bosses) == 0 && len(s.LootMaxroll.Sections) == 0 {
+		if pr := seasonBytes(n - 1); pr != nil {
+			var p seasonRaw
+			if json.Unmarshal(pr, &p) == nil {
+				s.Loot, s.LootMaxroll = p.Loot, p.LootMaxroll
+				prevLoot = len(p.Loot.Bosses) > 0 || len(p.LootMaxroll.Sections) > 0
+			}
+		}
+	}
 	v := buildView(&s)
+	if prevLoot {
+		v.LootSrc = append([]string{"stagione " + itoa(n-1) + " (la nuova non ha ancora tabelle)"}, v.LootSrc...)
+	}
 	views.m[n] = v
 	return v
 }

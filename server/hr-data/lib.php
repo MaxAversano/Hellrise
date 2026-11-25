@@ -246,20 +246,40 @@ function rob_parse($lines, $leveling) {
     return $out;
 }
 
+// nomi dei fogli nell'ordine del file (il primo è quello che Google restituisce se il nome non esiste)
+function rob_sheet_names() {
+    $html = fetch('https://docs.google.com/spreadsheets/d/' . ROB_SHEET . '/htmlview', 20);
+    if (!$html) return [];
+    preg_match_all('/items\.push\(\{name: "([^"]+)"/', $html, $m);
+    $out = [];
+    foreach ($m[1] as $n) { $n = clean($n); if (!in_array($n, $out, true)) $out[] = $n; }
+    return $out;
+}
+
 function step_rob() {
     $live = live_season();
     if (!$live) return false;
+    $names = rob_sheet_names();
+    $default = rob_csv('zz-foglio-inesistente');
+    $defKey = $default ? md5(json_encode($default)) : '';
+    $exists = function ($name, $lines) use ($names, $defKey) {
+        if (!$lines || count($lines) < 3) return false;
+        if ($names) return in_array($name, $names, true);
+        return md5(json_encode($lines)) !== $defKey; // senza elenco: diverso dal foglio predefinito
+    };
     $any = false;
     foreach ([$live + 1, $live, $live - 1] as $n) {
         if ($n < 1 || ($n === $live - 1 && $any && is_file(STORE . '/' . season_file($live + 1)))) continue;
         $res = ['sheet' => '', 'tier' => [], 'leveling' => [], 'levelingSheet' => '', 'source' => 'https://docs.google.com/spreadsheets/d/' . ROB_SHEET . '/htmlview'];
         foreach (["S$n Tier List", "S$n Tier List WIP", "S$n Build Tier List", "S$n Best Builds"] as $name) {
+            if ($names && !in_array($name, $names, true)) continue;
             $lines = rob_csv($name);
-            if ($lines && count($lines) > 3 && stripos(implode(' ', $lines[0]), "S$n") !== false) { $res['sheet'] = $name; $res['tier'] = rob_parse($lines, false); break; }
+            if ($exists($name, $lines)) { $res['sheet'] = $name; $res['tier'] = rob_parse($lines, false); break; }
         }
         foreach (["S$n Leveling Tier List", "S$n Leveling Tier List WIP"] as $name) {
+            if ($names && !in_array($name, $names, true)) continue;
             $lines = rob_csv($name);
-            if ($lines && count($lines) > 3 && stripos(implode(' ', $lines[0]), "S$n") !== false) { $res['levelingSheet'] = $name; $res['leveling'] = rob_parse($lines, true); break; }
+            if ($exists($name, $lines)) { $res['levelingSheet'] = $name; $res['leveling'] = rob_parse($lines, true); break; }
         }
         if ($res['tier'] || $res['leveling']) {
             $res['wip'] = stripos($res['sheet'] . $res['levelingSheet'], 'WIP') !== false;

@@ -88,6 +88,7 @@ func main() {
 	go startTrayThread()
 	go remoteLoop()
 	go gameDataLoop()
+	go mobaLoop()
 	go eventNotifyLoop()
 	go localUpdateLoop()
 	go serverSyncLoop()

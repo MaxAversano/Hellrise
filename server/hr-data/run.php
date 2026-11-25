@@ -34,7 +34,6 @@ $jobs = [
     ['d4builds', 3 * 3600, function () { return step_d4builds(); }],
     ['maxrollLoot', 6 * 3600, function () { return step_maxroll_loot(); }],
     ['patches', 1800, function () { return step_patches(); }],
-    ['bossInfo', 12 * 3600, function () { return step_moba_bossinfo(); }],
 ];
 foreach ($jobs as [$key, $every, $fn]) {
     if (microtime(true) > $deadline) break;
@@ -51,13 +50,14 @@ if ($st['live'] && microtime(true) < $deadline) {
     $n = step_maxroll_pages(6, $deadline);
     if ($n) $log[] = "maxroll pagine +$n";
 }
-if ($st['live'] && microtime(true) < $deadline && ($due('mobalytics', 3 * 3600) || ($st['moba']['i'] ?? 0) > 0)) {
+if (false && $st['live'] && microtime(true) < $deadline && ($due('mobalytics', 3 * 3600) || ($st['moba']['i'] ?? 0) > 0)) { // Mobalytics risponde 403 al server: lo scarica l'app dal PC
     $es = $st['moba'] ?? [];
     $full = step_mobalytics($es);
     if ($full) { $es['i'] = 0; $st['last']['mobalytics'] = $now; }
     $st['moba'] = $es;
     $log[] = 'mobalytics ' . ($full ? 'completo' : 'pagina ' . $es['i']);
 }
+unset($st['errors']['mobalytics'], $st['errors']['mobalytics-boss']);
 $st['seasons'] = seasons_list();
 save_json('state.json', $st);
 echo ($log ? implode("\n", $log) : 'niente da fare') . "\n";

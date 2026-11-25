@@ -30,7 +30,7 @@ if ($what === 'season') {
         $seasons[] = ['n' => $n, 'updated' => $d['updated'] ?? [], 'ptr' => $n > (int)$st['live'], 'live' => $n === (int)$st['live']];
     }
     out_json(json_encode(['live' => (int)$st['live'], 'seasons' => $seasons, 'lastRun' => $st['lastRun'] ?? 0, 'runs' => $st['runs'] ?? 0,
-        'errors' => $st['errors'] ?? (object)[], 'events' => load_json('events.json', (object)[]), 'patchesAt' => (int)(load_json('patches.json', [])['at'] ?? 0), 'php' => PHP_VERSION], JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES));
+        'errors' => (object)($st['errors'] ?? []), 'events' => load_json('events.json', (object)[]), 'patchesAt' => (int)(load_json('patches.json', [])['at'] ?? 0), 'php' => PHP_VERSION], JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES));
 }
 
 // niente cron? se i dati sono vecchi, lavora un po' dopo aver risposto all'app
