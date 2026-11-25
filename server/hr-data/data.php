@@ -1,7 +1,7 @@
 <?php
 // Dati per Hellrise: ?k=TOKEN&what=index | season&n=16 | events
 require_once __DIR__ . '/lib.php';
-check_token();
+// lettura aperta: chiunque abbia Hellrise legge i dati (scrivere resta solo con il codice, in app.php)
 header('Cache-Control: no-store');
 $GLOBALS['STATE'] = load_json('state.json', ['live' => 0, 'last' => [], 'errors' => []]);
 $st = $GLOBALS['STATE'];

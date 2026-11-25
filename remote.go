@@ -58,10 +58,10 @@ func remoteBase() (string, string) {
 
 func remoteGet(q string) ([]byte, error) {
 	base, tok := remoteBase()
-	if base == "" || tok == "" {
+	if base == "" {
 		return nil, fmt.Errorf("server non configurato")
 	}
-	req, _ := http.NewRequest("GET", base+"data.php?k="+url.QueryEscape(tok)+"&"+q, nil)
+	req, _ := http.NewRequest("GET", base+"data.php?k="+url.QueryEscape(tok)+"&"+q, nil) // la lettura è aperta a tutti: il codice serve solo a Max
 	req.Header.Set("User-Agent", "Hellrise/"+appVersion)
 	resp, err := httpc.Do(req)
 	if err != nil {

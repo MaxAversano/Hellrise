@@ -97,6 +97,7 @@ func main() {
 	go eventNotifyLoop()
 	go savedNotifyLoop()
 	go localUpdateLoop()
+	go serverUpdateLoop()
 	go serverSyncLoop()
 	go cleanupOldExe()
 	go framelessLoop()
