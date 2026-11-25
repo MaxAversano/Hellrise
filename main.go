@@ -82,7 +82,11 @@ func main() {
 	mux := http.NewServeMux()
 	setupAPI(mux)
 	sub, _ := fs.Sub(webFS, "web")
-	mux.Handle("/", http.FileServer(http.FS(sub)))
+	files := http.FileServer(http.FS(sub))
+	mux.HandleFunc("/", func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Cache-Control", "no-cache") // dopo un aggiornamento la finestra usa subito i file nuovi
+		files.ServeHTTP(w, r)
+	})
 	go http.Serve(ln, mux)
 
 	go startTrayThread()

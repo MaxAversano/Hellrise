@@ -49,7 +49,28 @@
     flush();
     return out;
   }
-  function gearTab() {
+  const fire = (el, t) => el && el.dispatchEvent(new MouseEvent(t, { bubbles: true }));
+  async function tipOf(el, sel) {
+    if (!el) return null;
+    const im = el.querySelector('img');
+    fire(el, 'mouseover'); fire(el, 'mouseenter'); fire(im, 'mouseover');
+    const t = await waitFor(() => document.querySelector(sel), 1200);
+    let out = null;
+    if (t) {
+      const name = t.querySelector('h2,[class*="__name"]');
+      out = {
+        n: T(name), my: name && /mythic/.test(name.className) ? 1 : 0,
+        vals: A(t, '[class*="__values"] > li').map(li => ({ b: T(li.querySelector('[class*="__bold"]')).replace(/:$/, ''), t: T(li.querySelector('[class*="__text"]')) || T(li), k: /--mythic/.test(li.className) ? 'm' : (/--base/.test(li.className) ? 'b' : '') })),
+        eff: A(t, '[class*="__effects"] > li').map(T)
+      };
+      const set = t.querySelector('[class*="__set"]');
+      if (set) out.set = { n: T(set.querySelector('[class*="__set__header"]')), pieces: A(set, '[class*="__set__piece"]').map(x => [T(x), /active/.test(x.className) ? 1 : 0]), bon: A(set, '[class*="__set__bonus"]').filter(x => x.querySelector('[class*="__count"]')).map(x => [T(x.querySelector('[class*="__count"]')), T(x.querySelector('[class*="__bonus__value"]')), /active/.test(x.className) ? 1 : 0]) };
+    }
+    fire(el, 'mouseout'); fire(el, 'mouseleave'); fire(im, 'mouseout'); fire(im, 'mouseleave');
+    await waitFor(() => !document.querySelector(sel), 800);
+    return out;
+  }
+  async function gearTab() {
     const c = content();
     const v = { gear: [], charms: [], runes: [], prime: [], skills: [], shards: [], stats: [] };
     A(c, '.builder__gear__item').forEach(it => {
@@ -58,9 +79,16 @@
       const kind = (nameEl.className.match(/builder__gear__name--(\w+)/) || [])[1] || '';
       v.gear.push({ slot: T(it.querySelector('.builder__gear__slot')), n: T(nameEl), k: kind, i: (img(it.querySelector('.builder__gear__icon')) || {}).i || '', gems: A(it, '.builder__gem__icon').map(img).filter(x => x && x.n) });
     });
-    const seal = c.querySelector('.builder__seal__icon');
-    if (seal) v.seal = img(seal);
-    v.charms = A(c, '.builder__charm__icon').map(img).filter(Boolean);
+    const sealEl = c.querySelector('.builder__seal');
+    if (sealEl) { v.seal = img(sealEl); if (v.seal) v.seal.tip = await tipOf(sealEl, '.seal__tooltip'); }
+    v.charms = [];
+    for (const ch of A(c, '.builder__charm')) {
+      const o = img(ch);
+      if (!o || !o.n) continue;
+      o.pos = (ch.className.match(/(top|mid|bottom)-(left|right)/) || [''])[0];
+      o.tip = await tipOf(ch, '.charm__tooltip');
+      v.charms.push(o);
+    }
     const rg = A(c, '.builder__gems').find(x => /rune/i.test(T(x.querySelector('.builder__gems__title'))));
     if (rg) v.runes = A(rg, '.builder__gem__icon').map(img).filter(x => x && x.n);
     v.prime = A(c, '.builder__prime__power img').map(img).filter(Boolean);
@@ -182,7 +210,7 @@
         await sleep(1000);
       }
       await openTab(0);
-      const g = gearTab();
+      const g = await gearTab();
       if (!notesOut && g.notes) { notesOut = g.notes; notesTitle = g.notesTitle; }
       const v = g.v;
       v.name = vnames[vi];

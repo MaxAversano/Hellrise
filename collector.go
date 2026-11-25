@@ -299,7 +299,7 @@ func serverFull(u string) []byte {
 	id := hashURL(keyURL(u))
 	p := cacheFile("full_" + id + ".json")
 	if st, err := os.Stat(p); err == nil && time.Since(st.ModTime()) < 3*time.Hour {
-		if b, err := os.ReadFile(p); err == nil {
+		if b, err := os.ReadFile(p); err == nil && bytes.Contains(b, []byte(fmt.Sprintf(`"xv":%d`, d4bExtractVer))) {
 			return b
 		}
 	}

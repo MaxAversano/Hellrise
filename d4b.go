@@ -38,7 +38,10 @@ type D4Full struct {
 	Notes    any               `json:"notes"`
 	NotesT   string            `json:"notesTitle"`
 	Tr       map[string]string `json:"tr"`
+	XV       int               `json:"xv"`
 }
+
+const d4bExtractVer = 2 // da aumentare quando l'estrattore legge cose nuove
 
 func d4bFullRead(u string) (*D4Full, error) {
 	if !strings.HasPrefix(u, "https://d4builds.gg/builds/") {
@@ -46,7 +49,7 @@ func d4bFullRead(u string) (*D4Full, error) {
 	}
 	p := filepath.Join(dataDir, "cache", "d4bfull_"+hashURL(u)+".json")
 	var f D4Full
-	if st, err := os.Stat(p); err == nil && time.Since(st.ModTime()) < 6*time.Hour && readJSON(p, &f) == nil && f.OK == 1 {
+	if st, err := os.Stat(p); err == nil && time.Since(st.ModTime()) < 6*time.Hour && readJSON(p, &f) == nil && f.OK == 1 && f.XV == d4bExtractVer {
 		return &f, nil
 	}
 	d4bMu.Lock()
@@ -65,7 +68,7 @@ func d4bFullRead(u string) (*D4Full, error) {
 		}
 		return nil, err
 	}
-	f.URL, f.At = u, time.Now().Unix()
+	f.URL, f.At, f.XV = u, time.Now().Unix(), d4bExtractVer
 	f.Tr = d4bTranslate(&f)
 	writeJSON(p, &f)
 	return &f, nil
@@ -150,6 +153,9 @@ func d4bTranslate(f *D4Full) map[string]string {
 				if _, ok := out[x]; !ok {
 					if it := trName(x); it != "" {
 						out[x] = it
+					}
+					if _, gi := itName(x); gi != nil && gi.Mythic {
+						out["~m:"+x] = "1"
 					}
 				}
 			}

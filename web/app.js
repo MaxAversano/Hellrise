@@ -149,7 +149,7 @@ async function loadEvents() {
 function nextOf(kind) { return (S.events?.events || []).find(e => e.kind === kind && evState(e) !== 'past'); }
 function renderNextChips() {
   const el = $('#nextev'); if (!S.events) { el.innerHTML = ''; return; }
-  el.innerHTML = ['boss', 'helltide', 'legion'].map(k => { const e = nextOf(k); if (!e) return ''; const live = evState(e) === 'live'; return `<div class="chipev ${live ? 'live' : ''}" onclick="location.hash='#/eventi'" title="${esc(e.title)}${e.zones ? ' · ' + esc(zonesTxt(e.zones)) : ''}"><span class="ic k-${k}">${IC[k]}</span>${k === 'boss' ? esc(e.guess ? 'Boss' : e.title) : (k === 'helltide' ? 'Marea' : 'Legione')} <b data-cd="${e.start}" data-end="${e.end}">${live ? 'in corso' : fmtLeft(e.start - nowS())}</b></div>`; }).join('');
+  el.innerHTML = ['boss', 'helltide', 'legion'].map(k => { const e = nextOf(k); if (!e) return ''; const live = evState(e) === 'live'; return `<div class="chipev ${live ? 'live' : ''}" onclick="location.hash='#/eventi'" title="${esc(e.title)}${e.zones ? ' · ' + esc(zonesTxt(e.zones)) : ''}"><span class="ic k-${k}">${IC[k]}</span><span class="cl">${k === 'boss' ? esc(e.guess ? 'Boss' : e.title) : (k === 'helltide' ? 'Marea' : 'Legione')}</span> <b data-cd="${e.start}" data-end="${e.end}">${live ? 'in corso' : fmtLeft(e.start - nowS())}</b></div>`; }).join('');
 }
 function tick() {
   $$('[data-cd]').forEach(el => {
@@ -308,21 +308,27 @@ const slotIcon = slot => SA + 'Uniques/' + (SLOTICON[String(slot).toLowerCase()]
 const isWeapon = s => /weapon|two-handed|bludgeon|slash|dual|ranged|polearm|sword|mace|axe|staff|bow|dagger|scythe|wand|glaive|flail/i.test(s || '');
 const KINDCLS = k => ({ mythic: 'mythic', unique: 'unique', legendary: 'legendary', runeword: 'runeword', talisman: 'talisman' }[k] || (k ? k : ''));
 
+function gemIcon(n) {
+  if (/^(ruby|sapphire|emerald|topaz|amethyst|diamond|skull)$/i.test(n)) return SA + 'Gems/grand-' + n.toLowerCase() + '.png';
+  if (/^splinter of/i.test(n)) return SA + 'Gems/' + snake(n) + '.png';
+  return '';
+}
 function viewFromPlanner(p, src) {
   const variants = (p.variants || []).map(v => {
-    const gear = [], charms = [], extra = [];
+    const gear = [], charms = [], extra = [], prime = [];
     let runes = [], seal = null;
     for (const g of v.gear || []) {
       if (g.typeEn === 'Active Runes') { runes = (g.sockets || []).map(s => { const [it, en] = s.split('|'); return { n: en || it, it }; }); continue; }
       if (g.kind === 'talisman') { const o = { n: g.en || g.name, it: g.name }; if (/seal/i.test(g.typeEn || '')) seal = o; else charms.push(o); continue; }
       if (!g.type && !g.typeEn) { if (g.name) extra.push({ n: g.en || g.name, it: g.name }); continue; }
+      if (/seasonal power|prime evil/i.test(g.typeEn || g.type || '')) { prime.push({ n: g.en || g.name, it: g.name, i: SA + 'PrimeEvilPowers/' + snake(g.en || g.name).replace(/_/g, '-') + '.png' }); continue; }
       const en = g.en || g.name;
       const aspect = g.aspectEn || g.aspect;
       const asp = /aspect/i.test(en);
       const icon = asp ? SA + 'Codex/1/offensive.png' : (g.kind === 'unique' || g.kind === 'mythic' || g.kind === 'runeword' ? SA + 'Uniques/2/' + snake(en) + '.png' : slotIcon(g.typeEn || g.type));
-      gear.push({ slot: g.typeEn || g.type, slotIt: g.type, n: en, it: g.name, k: asp ? 'legendary' : g.kind, i: icon, fb: slotIcon(g.typeEn || g.type), asp: aspect ? { n: g.aspectEn || aspect, it: g.aspect } : null, temp: g.tempered, gems: (g.sockets || []).map(s => { const [it, e] = s.split('|'); return { n: e || it, it }; }) });
+      gear.push({ slot: g.typeEn || g.type, slotIt: g.type, n: en, it: g.name, k: asp ? 'legendary' : g.kind, i: icon, fb: slotIcon(g.typeEn || g.type), asp: aspect ? { n: g.aspectEn || aspect, it: g.aspect } : null, temp: g.tempered, gems: (g.sockets || []).map(s => { const [it, e] = s.split('|'); return { n: e || it, it, i: gemIcon(e || it) }; }) });
     }
-    return { name: v.name, gear, charms, seal, runes, extra, skills: (v.skills || []).map(s => ({ n: s.en || s.name, it: s.name, i: SA + 'Skills/VoH2/' + snake(s.en || s.name) + '.png' })), mxParagon: v.paragon || null };
+    return { name: v.name, gear, charms, seal, runes, extra, prime, skills: (v.skills || []).map(s => ({ n: s.en || s.name, it: s.name, i: SA + 'Skills/VoH2/' + snake(s.en || s.name) + '.png' })), mxParagon: v.paragon || null };
   });
   return { src, variants, notes: null, tr: {}, filters: p.filters || [], plannerId: p.id, plannerUrl: p.url };
 }
@@ -362,6 +368,10 @@ async function showBuild(b) {
     return;
   }
   if (ui.variantName) { const i = view.variants.findIndex(v => (v.name || '').toLowerCase().includes(ui.variantName)); if (i >= 0) ui.variant = i; ui.variantName = null; }
+  else if (ui.variantFor !== b.url) { // build endgame: si parte dalla variante endgame, non dal leveling
+    ui.variantFor = b.url;
+    if (!/level/i.test(b.type) && /level/i.test(view.variants[ui.variant]?.name || '')) { const i = view.variants.findIndex(v => /endgame/i.test(v.name || '')); ui.variant = i >= 0 ? i : view.variants.findIndex(v => !/level/i.test(v.name || '')); if (ui.variant < 0) ui.variant = 0; }
+  }
   if (!view.variants[ui.variant]) ui.variant = 0;
   const v = view.variants[ui.variant];
   const has = {
@@ -406,21 +416,26 @@ function gearView(view, v, b) {
   g.forEach((x, i) => { if (!used.has(i)) { right.push(x); used.add(i); } });
   const slotHTML = (x, side) => {
     const empty = /^empty$/i.test(x.slot) || !x.n;
-    const kind = /aspect/i.test(x.n || '') ? 'legendary' : KINDCLS(x.k);
+    const kind = /aspect/i.test(x.n || '') ? 'legendary' : (view.src === 'd4b' && x.k === 'mythic' && !view.tr['~m:' + x.n] ? 'unique' : (view.src === 'd4b' && !x.k ? 'legendary' : KINDCLS(x.k)));
     return `<div class="gslot ${side} ${empty ? 'empty' : ''}"><div class="gico k-${kind}">${icoImg(x.i, 'gimg', x.n, x.fb || slotIcon(x.slot))}${x.gems?.length ? `<div class="ggems">${x.gems.map(gm => `<span title="${esc(TN(view, gm.n, gm.it))}">${gm.i ? icoImg(gm.i, '', gm.n) : `<i>${esc((TN(view, gm.n, gm.it) || '?').slice(0, 2))}</i>`}</span>`).join('')}</div>` : ''}</div><div class="gtx"><b class="k-${kind}">${esc(empty ? 'Vuoto' : TN(view, x.n, x.it))}</b><small>${esc(TN(view, x.slot, x.slotIt))}</small>${x.asp ? `<small class="asp">${esc(TN(view, x.asp.n, x.asp.it))}</small>` : ''}</div></div>`;
   };
-  const ring = (v.prime?.length ? v.prime : v.skills || []).slice(0, 8);
-  const ringHTML = ring.map((p, i) => { const a = (i / ring.length) * Math.PI * 2 - Math.PI / 2, r = 41; return `<div class="rnode" style="left:${50 + r * Math.cos(a)}%;top:${50 + r * Math.sin(a)}%" title="${esc(TN(view, p.n, p.it))}">${icoImg(p.i, '', p.n)}</div>`; }).join('');
+  const POSA = { 'top-left': -120, 'top-right': -60, 'mid-right': 0, 'bottom-right': 60, 'bottom-left': 120, 'mid-left': 180 };
+  const charms = v.charms || [];
+  const useCharms = charms.length || v.seal;
+  const ring = useCharms ? charms.slice(0, 6) : (v.skills || []).slice(0, 8);
+  const ringHTML = ring.map((p, i) => { const deg = useCharms ? (POSA[p.pos] ?? (i * 60 - 120)) : (i / ring.length) * 360 - 90; const a = deg * Math.PI / 180, r = 38; const my = p.tip?.my || /mythic/i.test(p.i || ''); return `<div class="rnode ${useCharms ? 'ch' : ''} ${my ? 'my' : ''}" style="left:${50 + r * Math.cos(a)}%;top:${50 + r * Math.sin(a)}%" title="${esc(TN(view, p.n, p.it))}${p.tip?.vals?.length ? ' · ' + esc(p.tip.vals.map(x => x.t).join(', ')) : ''}">${p.i ? icoImg(p.i, '', p.n) : `<i>${esc(TN(view, p.n, p.it).slice(0, 14))}</i>`}</div>`; }).join('')
+    + (useCharms && v.seal ? `<div class="rnode seal ${v.seal.tip?.my ? 'my' : ''}" style="left:50%;top:50%" title="${esc(TN(view, v.seal.tip?.n || v.seal.n, v.seal.it))}">${v.seal.i ? icoImg(v.seal.i, '', v.seal.n) : `<i>${esc(TN(view, v.seal.n, v.seal.it))}</i>`}</div>` : '');
+  const ringLabel = useCharms ? (v.seal ? '' : '<span>Talismani</span>') : '<span>Abilità</span>';
   const chip = (x, extraCls) => `<div class="chipi ${extraCls || ''}" title="${esc(TSUB(view, x.n, x.it))}">${x.i ? icoImg(x.i, '', x.n) : ''}<span>${esc(TN(view, x.n, x.it))}</span></div>`;
   const keys = ['LMB', 'RMB', '1', '2', '3', '4'];
   const sec = (title, body) => body ? `<div class="bsec"><div class="lbl">${title}</div>${body}</div>` : '';
   return `<div class="gboard">
       <div class="gcol">${left.map(x => slotHTML(x, 'l')).join('')}</div>
-      <div class="gcenter"><div class="gring">${ringHTML}<div class="rmid">${v.prime?.length ? '<span>Poteri dei<br>Primi Mali</span>' : '<span>Abilità</span>'}</div></div></div>
+      <div class="gcenter"><div class="gring ${useCharms ? 'hex' : ''}">${ringLabel ? `<div class="rmid">${ringLabel}</div>` : ''}${ringHTML}</div><div class="glbl">${useCharms ? 'Sigillo e talismani' : 'Abilità'}</div></div>
       <div class="gcol">${right.map(x => slotHTML(x, 'r')).join('')}</div>
     </div>
     ${sec('Rune attive', v.runes?.length ? `<div class="chips">${v.runes.map(x => chip(x, 'rune')).join('')}</div>` : '')}
-    ${sec('Sigillo e talismani', (v.seal || v.charms?.length) ? `<div class="chips">${v.seal ? chip(v.seal, 'seal') : ''}${(v.charms || []).map(x => chip(x, 'charm')).join('')}</div>` : '')}
+    ${sec('Sigillo e talismani', (v.seal || v.charms?.length) ? charmsHTML(view, v) : '')}
     ${sec(v.skillsTitle && !/^skills$/i.test(v.skillsTitle) ? esc(v.skillsTitle) : 'Barra delle abilità', v.skills?.length ? `<div class="bskills">${v.skills.slice(0, 6).map((s, i) => `<div class="bskill"><span class="key">${keys[i] || ''}</span>${icoImg(s.i, 'sico', s.n)}<b>${esc(TN(view, s.n, s.it))}</b></div>`).join('')}</div>` : '')}
     ${(v.extra || []).filter(x => x.items?.length).map(x => sec(x.title === 'Technique' ? 'Tecnica' : esc(x.title), `<div class="chips">${x.items.map(y => chip(y)).join('')}</div>`)).join('')}
     ${v.prime?.length ? sec('Poteri dei Primi Mali', `<div class="chips">${v.prime.map(x => chip(x)).join('')}</div>`) : ''}
@@ -431,6 +446,21 @@ function gearView(view, v, b) {
     <div class="row" style="margin-top:20px;gap:8px;flex-wrap:wrap">${v.skills?.length ? `<button class="btn pri" id="mkmacro">${IC.keyb} Suggerisci profilo macro</button>` : ''}${view.plannerId ? `<button class="btn ghost" id="planner">${IC.ext} Planner Maxroll</button>` : ''}</div>`;
 }
 
+function charmsHTML(view, v) {
+  const list = [...(v.seal ? [{ ...v.seal, isSeal: 1 }] : []), ...(v.charms || [])];
+  const sets = {};
+  const card = x => {
+    const t = x.tip || {};
+    if (t.set?.n && !sets[t.set.n]) sets[t.set.n] = t.set;
+    const my = t.my || /mythic/i.test(x.i || '');
+    return `<div class="ccard ${x.isSeal ? 'seal' : ''} ${my ? 'my' : ''}"><div class="h">${x.i ? icoImg(x.i, '', x.n) : ''}<div><b>${esc(TN(view, t.n || x.n, x.it))}</b><small>${x.isSeal ? 'Sigillo' : (t.set?.n ? esc(t.set.n) : (my ? 'Talismano mitico' : 'Talismano'))}</small></div></div>
+      ${t.vals?.length ? `<ul class="cvals">${t.vals.map(y => `<li class="${y.k === 'm' ? 'm' : ''}">${y.b ? `<em>${esc(y.b)}:</em> ` : ''}${esc(y.t)}</li>`).join('')}</ul>` : ''}
+      ${t.eff?.length ? `<div class="ceff">${t.eff.map(e => `<p>${esc(e)}</p>`).join('')}</div>` : ''}</div>`;
+  };
+  const cards = list.map(card).join('');
+  const setHTML = Object.values(sets).map(st => { const have = st.pieces.filter(p => p[1]).length; return `<div class="cset"><div class="h"><b>${esc(st.n)}</b><span class="badge">${have}/${st.pieces.length} pezzi</span></div><div class="cpieces">${st.pieces.map(p => `<span class="${p[1] ? 'on' : ''}">${esc(TN(view, p[0], ''))}</span>`).join('')}</div>${st.bon.map(b => `<div class="cbon ${b[2] ? 'on' : ''}"><em>${esc(b[0].replace('Set:', 'set:'))}</em> ${esc(b[1])}</div>`).join('')}</div>`; }).join('');
+  return `<div class="ccards">${cards}</div>${setHTML ? `<div class="csets">${setHTML}</div>` : ''}`;
+}
 function notesHTML(view, notes) {
   if (!notes?.length) return '<div class="muted">Nessuna nota.</div>';
   return notes.map(line => {
@@ -444,12 +474,20 @@ function notesHTML(view, notes) {
 function bindViewer(box) {
   $$('.viewer', box).forEach(vw => {
     const inner = $('.vin', vw), W = +vw.dataset.w, H = +vw.dataset.h;
-    let s = Math.min(vw.clientWidth / W, vw.clientHeight / H, 1) * .96, x = (vw.clientWidth - W * s) / 2, y = (vw.clientHeight - H * s) / 2;
+    const fit = () => { s = Math.min(vw.clientWidth / W, vw.clientHeight / H, 1) * .96; x = (vw.clientWidth - W * s) / 2; y = (vw.clientHeight - H * s) / 2; };
+    let s, x, y;
+    fit();
+    const mn = +vw.dataset.min || 0;
+    if (s < mn) { // troppo piccolo: si parte ingranditi sulla parte scelta della build
+      s = mn;
+      const fx = vw.dataset.fx !== undefined ? +vw.dataset.fx : W / 2, fy = vw.dataset.fy !== undefined ? +vw.dataset.fy : H / 2;
+      x = vw.clientWidth / 2 - fx * s; y = vw.clientHeight / 2 - fy * s;
+    }
     const ap = () => { inner.style.transform = `translate(${x}px,${y}px) scale(${s})`; };
     ap();
     vw.onwheel = e => { e.preventDefault(); const r = vw.getBoundingClientRect(), mx = e.clientX - r.left, my = e.clientY - r.top; const ns = Math.max(.08, Math.min(2.5, s * (e.deltaY < 0 ? 1.15 : 1 / 1.15))); x = mx - (mx - x) * ns / s; y = my - (my - y) * ns / s; s = ns; ap(); };
     vw.onpointerdown = e => { if (e.button !== 0) return; vw.setPointerCapture(e.pointerId); const sx = e.clientX - x, sy = e.clientY - y; vw.classList.add('drag'); vw.onpointermove = ev => { x = ev.clientX - sx; y = ev.clientY - sy; ap(); }; vw.onpointerup = () => { vw.onpointermove = null; vw.classList.remove('drag'); }; };
-    $('.vfit', vw.parentElement)?.addEventListener('click', () => { s = Math.min(vw.clientWidth / W, vw.clientHeight / H, 1) * .96; x = (vw.clientWidth - W * s) / 2; y = (vw.clientHeight - H * s) / 2; ap(); });
+    $('.vfit', vw.parentElement)?.addEventListener('click', () => { fit(); ap(); });
   });
 }
 const NSIZE = { c: 64, l: 74, d: 52, s: 46, k: 18 };
@@ -466,9 +504,11 @@ function treeView(view, t, kind) {
     return `<div class="tn k${k} ${got ? 'on' : ''}" style="left:${x + ox}px;top:${y + oy}px;width:${sz}px;height:${sz}px" title="${esc(TN(view, alt, ''))}${rank ? ' · ' + esc(rank) : ''}">${bg ? `<img class="tbg" src="${esc(IMG(bg))}" alt="">` : ''}${icon && k !== 'k' ? `<img class="tic" src="${esc(IMG(icon))}" alt="">` : ''}${rank && got ? `<i>${esc(rank)}</i>` : ''}</div>`;
   }).join('');
   const picked = t.nodes.filter(n => n[2] !== 'c' && n[2] !== 'k' && n[3] && n[6] && !/^0\//.test(n[6]));
+  let fx = W / 2, fy = H / 2, zmin = 0.5;
+  if (picked.length) { const xs = picked.map(n => n[0] + ox), ys = picked.map(n => n[1] + oy); fx = (Math.min(...xs) + Math.max(...xs)) / 2; fy = (Math.min(...ys) + Math.max(...ys)) / 2; zmin = Math.max(.3, Math.min(.9, 880 / (Math.max(...xs) - Math.min(...xs) + 200), 540 / (Math.max(...ys) - Math.min(...ys) + 200))); }
   const groups = {};
   picked.forEach(n => { (groups[n[2] === 'l' ? 'big' : 'small'] ||= []).push(n); });
-  return `<div class="vwrap"><div class="viewer" data-w="${W}" data-h="${H}"><div class="vin" style="width:${W}px;height:${H}px"><svg class="vlines" width="${W}" height="${H}">${lines}</svg>${nodes}</div></div><button class="btn sm vfit">Adatta alla finestra</button>${t.remaining && t.remaining !== '0' ? `<span class="vrem">Punti rimasti: ${esc(t.remaining)}</span>` : ''}</div>
+  return `<div class="vwrap"><div class="viewer" data-w="${W}" data-h="${H}" data-min="${zmin}" data-fx="${fx}" data-fy="${fy}"><div class="vin" style="width:${W}px;height:${H}px"><svg class="vlines" width="${W}" height="${H}">${lines}</svg>${nodes}</div></div><button class="btn sm vfit">Adatta alla finestra</button>${t.remaining && t.remaining !== '0' ? `<span class="vrem">Punti rimasti: ${esc(t.remaining)}</span>` : ''}</div>
     <div class="bsec"><div class="lbl">${kind === 'war' ? 'Nodi scelti' : 'Abilità e passive scelte'} · ${picked.length}</div><div class="chips">${picked.map(n => `<div class="chipi ${n[2] === 'l' ? 'big' : ''}">${icoImg(n[4], '', n[3])}<span>${esc(TN(view, n[3], ''))}</span><em>${esc(n[6])}</em></div>`).join('')}</div></div>`;
 }
 const PTILE = 60;
@@ -479,8 +519,8 @@ function paragonView(view, p) {
   bs.forEach(b => { pts.push([b.x, b.y], [b.x + 21 * PTILE, b.y + 21 * PTILE]); });
   const minX = Math.min(...pts.map(q => q[0])) - 40, minY = Math.min(...pts.map(q => q[1])) - 70, maxX = Math.max(...pts.map(q => q[0])) + 40, maxY = Math.max(...pts.map(q => q[1])) + 40;
   const W = maxX - minX, H = maxY - minY;
-  const boards = bs.map((b, bi) => `<div class="pbd" style="left:${b.x - minX}px;top:${b.y - minY}px;transform:rotate(${b.r}deg)">${b.tiles.map(t => { const [r, c, a, alt, ic, rar] = t; return `<div class="pt ${a ? 'on' : ''}" style="left:${c * PTILE}px;top:${r * PTILE}px;--rc:${PRAR[rar] || '#555'};transform:rotate(${-b.r}deg)" title="${esc(alt)}${rar ? ' · ' + esc(rar) : ''}">${ic ? `<img src="${esc(IMG(SA + 'Paragon/' + (a && !/_active\.png$/.test(ic) ? ic.replace(/\.png$/, '_active.png') : ic)))}" alt="">` : ''}</div>`; }).join('')}</div><div class="pbl" style="left:${b.x - minX + 21 * PTILE / 2}px;top:${b.y - minY - 4}px"><b>${bi + 1}</b> ${esc(TN(view, b.n, ''))}${b.g ? ` <em>(${esc(TN(view, b.g, ''))})</em>` : ''}</div>`).join('');
-  return `<div class="vwrap"><div class="viewer tall" data-w="${W}" data-h="${H}"><div class="vin" style="width:${W}px;height:${H}px">${boards}</div></div><button class="btn sm vfit">Adatta alla finestra</button>${p.points ? `<span class="vrem">Punti: ${esc(p.points)}</span>` : ''}</div>
+  const boards = bs.map((b, bi) => `<div class="pbd" style="left:${b.x - minX}px;top:${b.y - minY}px;transform:rotate(${b.r}deg)">${b.tiles.map(t => { const [r, c, a, alt, ic, rar] = t; return `<div class="ptile ${a ? 'on' : ''}" style="left:${c * PTILE}px;top:${r * PTILE}px;--rc:${PRAR[rar] || '#555'};transform:rotate(${-b.r}deg)" title="${esc(alt)}${rar ? ' · ' + esc(rar) : ''}">${ic ? `<img src="${esc(IMG(SA + 'Paragon/' + (a && !/_active\.png$/.test(ic) ? ic.replace(/\.png$/, '_active.png') : ic)))}" alt="">` : ''}</div>`; }).join('')}</div><div class="pbl" style="left:${b.x - minX + 21 * PTILE / 2}px;top:${b.y - minY - 4}px"><b>${bi + 1}</b> ${esc(TN(view, b.n, ''))}${b.g ? ` <em>(${esc(TN(view, b.g, ''))})</em>` : ''}</div>`).join('');
+  return `<div class="vwrap"><div class="viewer tall" data-w="${W}" data-h="${H}" data-min="0.16" data-fx="${bs[0].x - minX + 630}" data-fy="${bs[0].y - minY + 630}"><div class="vin" style="width:${W}px;height:${H}px">${boards}</div></div><button class="btn sm vfit">Adatta alla finestra</button>${p.points ? `<span class="vrem">Punti: ${esc(p.points)}</span>` : ''}</div>
     <div class="bsec"><div class="lbl">Tavole e glifi</div><div class="pblist">${bs.map((b, i) => `<div class="pbi"><span class="n">${i + 1}</span><div><b>${esc(TN(view, b.n, ''))}</b>${b.g ? `<small>Glifo: ${esc(TN(view, b.g, ''))}</small>` : ''}${b.s?.length ? `<small class="muted">${esc(b.s.join(' · '))}</small>` : ''}${b.r ? `<small class="muted">Rotazione ${b.r}°</small>` : ''}</div></div>`).join('')}</div></div>`;
 }
 function mxParagonHTML(v) {
