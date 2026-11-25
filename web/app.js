@@ -86,7 +86,7 @@ async function boot() {
   await loadEvents();
   setInterval(loadEvents, 60000);
   setInterval(tick, 1000);
-  setInterval(poll, 5000);
+  setInterval(poll, 3000);
   addEventListener('hashchange', route);
   route();
 }
@@ -98,8 +98,9 @@ async function poll() {
     const dataArrived = (S.st.remote?.at || 0) !== (st.remote?.at || 0);
     S.st = st;
     if (seasonsChanged || dataArrived) { S.builds = {}; S.loot = {}; renderSeasonPick(); }
-    if ((seasonsChanged || namesArrived) && !document.querySelector('input:focus,textarea:focus')) route();
+    if ((seasonsChanged || namesArrived || (dataArrived && ['build', 'drop', 'home'].includes(S.page) && !S.ui.loadingBuild)) && !document.querySelector('input:focus,textarea:focus,select:focus')) route();
     updBar(st.update);
+    collectBar(st.collector);
   } catch { }
 }
 function applySettings() {
@@ -749,6 +750,16 @@ document.addEventListener('mousedown', e => {
 document.addEventListener('dblclick', e => { if (document.body.classList.contains('frameless') && e.target.closest('header.top') && !e.target.closest('a,button,input,select,label')) fetch('/api/win?a=max'); });
 function sendInner() { if (!window.DEMO) fetch(`/api/win?a=inner&h=${innerHeight}&d=${devicePixelRatio}`).catch(() => { }); }
 addEventListener('resize', sendInner); setTimeout(sendInner, 300);
+// barra della raccolta in sottofondo (D4Builds e Mobalytics) con il tempo stimato
+function collectBar(c) {
+  let el = $('#colbar');
+  if (!c?.running) { if (el) { el.classList.add('done'); setTimeout(() => el.remove(), 500); } return; }
+  if (!el) { el = document.createElement('div'); el.id = 'colbar'; el.className = 'glass'; el.innerHTML = '<div class="cbt"></div><div class="cbtrack"><i></i></div>'; document.body.appendChild(el); }
+  const pct = c.total ? Math.min(100, Math.round(c.done / c.total * 100)) : 3;
+  const eta = c.eta > 0 ? (c.eta >= 90 ? `circa ${Math.round(c.eta / 60)} min` : `meno di 2 min`) : 'calcolo il tempo…';
+  el.querySelector('.cbt').innerHTML = `<b>Scarico le build</b> · ${esc(c.step || '')}${c.total ? ` · ${c.done}/${c.total}` : ''}<span class="sp"></span><span class="muted">${eta}</span>`;
+  el.querySelector('.cbtrack i').style.width = pct + '%';
+}
 function updBar(ready) {
   let el = $('#updbar');
   if (!ready) { if (el) el.remove(); return; }

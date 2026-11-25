@@ -55,52 +55,88 @@ func uploadData(key string, season int, v any) error {
 	if resp.StatusCode != 200 || strings.TrimSpace(string(body)) != "ok" {
 		return fmt.Errorf("HTTP %d %s", resp.StatusCode, strings.TrimSpace(string(body)))
 	}
+	go remoteRefresh() // le build appena caricate compaiono subito
 	return nil
 }
 
 var collectState struct {
 	sync.Mutex
-	Running bool   `json:"running"`
-	Step    string `json:"step"`
-	Done    int    `json:"done"`
-	Total   int    `json:"total"`
-	At      int64  `json:"at"`
+	Running bool
+	Step    string
+	Done    int
+	Total   int
+	At      int64
+	Start   time.Time
+	Got     int // pagine lette con successo nell'ultima raccolta
 }
 
 func collectorInfo() any {
 	collectState.Lock()
 	defer collectState.Unlock()
-	return map[string]any{"enabled": isCollector(), "running": collectState.Running, "step": collectState.Step, "done": collectState.Done, "total": collectState.Total, "at": collectState.At}
+	eta := 0
+	if collectState.Running && collectState.Done > 0 && collectState.Total > collectState.Done {
+		per := time.Since(collectState.Start).Seconds() / float64(collectState.Done)
+		eta = int(per * float64(collectState.Total-collectState.Done))
+	}
+	return map[string]any{"enabled": isCollector(), "running": collectState.Running, "step": collectState.Step, "done": collectState.Done,
+		"total": collectState.Total, "at": collectState.At, "eta": eta}
 }
 
 func setStep(step string, done, total int) {
 	collectState.Lock()
-	collectState.Step, collectState.Done, collectState.Total = step, done, total
+	collectState.Step = step
+	if done >= 0 {
+		collectState.Done = done
+	}
+	if total >= 0 {
+		collectState.Total = total
+	}
+	collectState.Unlock()
+}
+
+func stepDone(ok bool) {
+	collectState.Lock()
+	collectState.Done++
+	if ok {
+		collectState.Got++
+	}
 	collectState.Unlock()
 }
 
 func collectLoop() {
 	var last struct {
-		At int64 `json:"at"`
+		At      int64  `json:"at"`
+		Version string `json:"version"`
 	}
 	readJSON(cacheFile("raccolta.json"), &last)
+	if last.Version != appVersion { // nuova versione dell'app: raccoglie di nuovo subito
+		last.At = 0
+	}
 	collectState.Lock()
 	collectState.At = last.At
 	collectState.Unlock()
-	time.Sleep(40 * time.Second)
+	time.Sleep(15 * time.Second)
+	retry := time.Time{}
 	for {
 		collectState.Lock()
 		at := collectState.At
 		collectState.Unlock()
-		if isCollector() && time.Since(time.Unix(at, 0)) > 6*time.Hour && len(seasonsAvailable()) > 0 {
+		if isCollector() && time.Since(time.Unix(at, 0)) > 6*time.Hour && time.Now().After(retry) && len(seasonsAvailable()) > 0 {
 			collect()
-			now := time.Now().Unix()
 			collectState.Lock()
-			collectState.At = now
+			got := collectState.Got
 			collectState.Unlock()
-			writeJSON(cacheFile("raccolta.json"), map[string]int64{"at": now})
+			if got > 0 {
+				now := time.Now().Unix()
+				collectState.Lock()
+				collectState.At = now
+				collectState.Unlock()
+				writeJSON(cacheFile("raccolta.json"), map[string]any{"at": now, "version": appVersion})
+			} else {
+				retry = time.Now().Add(30 * time.Minute) // non è riuscita: riprova tra mezz'ora
+			}
 		}
-		time.Sleep(10 * time.Minute)
+		time.Sleep(time.Minute)
 	}
 }
 
@@ -110,7 +146,8 @@ func collect() {
 		collectState.Unlock()
 		return
 	}
-	collectState.Running = true
+	collectState.Running, collectState.Done, collectState.Total, collectState.Got = true, 0, 0, 0
+	collectState.Start = time.Now()
 	collectState.Unlock()
 	defer func() {
 		collectState.Lock()
@@ -124,8 +161,26 @@ func collect() {
 	}
 	log.Printf("raccolta: inizio (stagione live %d)", live)
 
+	// quante pagine in tutto (per la barra e il tempo stimato)
+	d4bURLs := map[int][]string{}
+	nD4b := 0
+	for n := range avail {
+		v := seasonView(n)
+		if v == nil {
+			continue
+		}
+		seen := map[string]bool{}
+		for _, b := range v.Builds {
+			if b.Src == "D4Builds" && strings.Contains(b.URL, "d4builds.gg/builds/") && !seen[keyURL(b.URL)] {
+				seen[keyURL(b.URL)] = true
+				d4bURLs[n] = append(d4bURLs[n], b.URL)
+				nD4b++
+			}
+		}
+	}
+	setStep("Mobalytics: elenco delle build", 0, nD4b+10)
+
 	// 1) Mobalytics: elenchi e guida dei boss
-	setStep("Mobalytics: elenco build", 0, 0)
 	mobaRefresh()
 	mc := mobaSnapshot()
 	bySeason := map[int][]mobaBuild{}
@@ -151,16 +206,23 @@ func collect() {
 	}
 
 	// 2) dettagli delle build Mobalytics
+	nMoba := 0
+	for _, l := range bySeason {
+		nMoba += len(l)
+	}
+	setStep("Mobalytics: dettagli delle build", 10, 10+nMoba+nD4b)
 	for n, list := range bySeason {
 		details := map[string]*PBuild{}
-		for i, b := range list {
-			setStep(fmt.Sprintf("Mobalytics S%d: dettagli build", n), i, len(list))
+		for _, b := range list {
+			setStep(fmt.Sprintf("Mobalytics · stagione %d", n), -1, -1)
 			mobaDetailCache.Lock()
 			delete(mobaDetailCache.m, b.URL)
 			mobaDetailCache.Unlock()
-			if d, err := mobaBuildDetail(b.URL); err == nil {
+			d, err := mobaBuildDetail(b.URL)
+			if err == nil {
 				details[keyURL(b.URL)] = d
 			}
+			stepDone(err == nil)
 			if len(details) >= 10 {
 				if err := uploadData("mobaDetails", n, details); err != nil {
 					log.Printf("raccolta: mobaDetails S%d: %v", n, err)
@@ -175,27 +237,17 @@ func collect() {
 	}
 
 	// 3) dettagli delle build D4Builds (elenco del sito e build di Rob)
-	for n := range avail {
-		v := seasonView(n)
-		if v == nil {
-			continue
-		}
-		seen := map[string]bool{}
-		var urls []string
-		for _, b := range v.Builds {
-			if b.Src == "D4Builds" && strings.Contains(b.URL, "d4builds.gg/builds/") && !seen[keyURL(b.URL)] {
-				seen[keyURL(b.URL)] = true
-				urls = append(urls, b.URL)
-			}
-		}
+	for n, urls := range d4bURLs {
 		details := map[string]*PBuild{}
-		for i, u := range urls {
-			setStep(fmt.Sprintf("D4Builds S%d: lettura build", n), i, len(urls))
-			if d, err := d4bBuildDetail(u); err == nil {
+		for _, u := range urls {
+			setStep(fmt.Sprintf("D4Builds · stagione %d", n), -1, -1)
+			d, err := d4bBuildDetail(u)
+			if err == nil {
 				details[keyURL(u)] = d
 			} else {
 				log.Printf("raccolta: d4builds %s: %v", u, err)
 			}
+			stepDone(err == nil)
 			if len(details) >= 10 {
 				if err := uploadData("d4bDetails", n, details); err != nil {
 					log.Printf("raccolta: d4bDetails S%d: %v", n, err)
@@ -208,7 +260,12 @@ func collect() {
 			uploadData("d4bDetails", n, details)
 		}
 	}
-	log.Printf("raccolta: finita")
+	if len(mc.Builds) > 0 {
+		stepDone(true)
+	}
+	collectState.Lock()
+	log.Printf("raccolta: finita, %d pagine lette su %d", collectState.Got, collectState.Total)
+	collectState.Unlock()
 	go remoteRefresh()
 }
 

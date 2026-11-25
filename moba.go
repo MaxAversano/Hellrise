@@ -63,7 +63,9 @@ func mobaGet(u string) (string, error) {
 	if page, e2 := browserDump(u); e2 == nil && strings.Contains(page, "__PRELOADED_STATE__") {
 		return page, nil
 	} else if e2 != nil {
-		log.Printf("mobalytics: anche con Edge: %v", e2)
+		log.Printf("mobalytics: anche col lettore: %v", e2)
+	} else {
+		log.Printf("mobalytics: il lettore non ha trovato i dati nella pagina (%d caratteri)", len(page))
 	}
 	return "", err
 }

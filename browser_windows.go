@@ -3,14 +3,10 @@
 package main
 
 import (
-	"context"
-	"fmt"
 	"os"
 	"os/exec"
 	"path/filepath"
-	"sync"
 	"syscall"
-	"time"
 )
 
 const createNoWindow = 0x08000000
@@ -119,28 +115,4 @@ func openGuideWindow(u string) {
 	cmd := exec.Command(b, "--app="+u, "--user-data-dir="+filepath.Join(dataDir, "guide"), "--window-size=1400,900",
 		"--no-first-run", "--no-default-browser-check", "--disable-features=Translate,msEdgeSidebarV2", "--disable-sync")
 	cmd.Start()
-}
-
-// legge una pagina con Edge nascosto (headless) e restituisce l'HTML già caricato
-var dumpMu sync.Mutex
-
-func browserDump(u string) (string, error) {
-	b := findBrowser()
-	if b == "" {
-		return "", fmt.Errorf("Edge non trovato")
-	}
-	dumpMu.Lock() // una pagina alla volta
-	defer dumpMu.Unlock()
-	ctx, cancel := context.WithTimeout(context.Background(), 60*time.Second)
-	defer cancel()
-	cmd := exec.CommandContext(ctx, b, "--headless=new", "--disable-gpu", "--no-first-run", "--no-default-browser-check", "--mute-audio",
-		"--user-data-dir="+filepath.Join(dataDir, "lettore"), "--virtual-time-budget=8000",
-		"--user-agent=Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/131.0.0.0 Safari/537.36 Edg/131.0.0.0",
-		"--dump-dom", u)
-	cmd.SysProcAttr = &syscall.SysProcAttr{HideWindow: true, CreationFlags: createNoWindow}
-	out, err := cmd.Output()
-	if err != nil && len(out) < 1000 {
-		return "", err
-	}
-	return string(out), nil
 }
