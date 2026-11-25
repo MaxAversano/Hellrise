@@ -304,16 +304,19 @@ var mobaSlotNames = map[string][2]string{
 	"dual-wield-weapon-2": {"Arma (mano 2)", "Dual-Wield Weapon 2"}, "ranged-weapon": {"Arma a distanza", "Ranged Weapon"},
 }
 
-func mobaBuildDetail(u string) (*PBuild, error) {
-	if !strings.HasPrefix(u, "https://mobalytics.gg/diablo-4/") {
-		return nil, &httpErr{400}
+// stato della pagina Mobalytics (__PRELOADED_STATE__), tenuto in memoria per non rileggere la pagina
+var mobaStates = struct {
+	sync.Mutex
+	m map[string]any
+}{m: map[string]any{}}
+
+func mobaState(u string) (any, error) {
+	mobaStates.Lock()
+	if st, ok := mobaStates.m[u]; ok {
+		mobaStates.Unlock()
+		return st, nil
 	}
-	mobaDetailCache.Lock()
-	if b := mobaDetailCache.m[u]; b != nil {
-		mobaDetailCache.Unlock()
-		return b, nil
-	}
-	mobaDetailCache.Unlock()
+	mobaStates.Unlock()
 	page, err := mobaGet(u)
 	if err != nil {
 		return nil, err
@@ -327,6 +330,29 @@ func mobaBuildDetail(u string) (*PBuild, error) {
 	var st any
 	if end < 0 || json.Unmarshal([]byte(strings.TrimSuffix(strings.TrimSpace(page[i:i+end]), ";")), &st) != nil {
 		return nil, &httpErr{422}
+	}
+	mobaStates.Lock()
+	if len(mobaStates.m) > 40 {
+		mobaStates.m = map[string]any{}
+	}
+	mobaStates.m[u] = st
+	mobaStates.Unlock()
+	return st, nil
+}
+
+func mobaBuildDetail(u string) (*PBuild, error) {
+	if !strings.HasPrefix(u, "https://mobalytics.gg/diablo-4/") {
+		return nil, &httpErr{400}
+	}
+	mobaDetailCache.Lock()
+	if b := mobaDetailCache.m[u]; b != nil {
+		mobaDetailCache.Unlock()
+		return b, nil
+	}
+	mobaDetailCache.Unlock()
+	st, err := mobaState(u)
+	if err != nil {
+		return nil, err
 	}
 	// cerca il documento con le varianti della build
 	var doc map[string]any

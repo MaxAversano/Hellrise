@@ -11,6 +11,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"regexp"
 	"strconv"
 	"strings"
 	"sync"
@@ -40,6 +41,9 @@ type D4Full struct {
 	NotesT   string            `json:"notesTitle"`
 	Tr       map[string]string `json:"tr"`
 	XV       int               `json:"xv"`
+	Filters  []PFilter         `json:"filters,omitempty"` // filtri loot (Maxroll)
+	Planner  string            `json:"planner,omitempty"` // id del planner Maxroll
+	Src      string            `json:"src,omitempty"`
 }
 
 const d4bExtractVer = 3 // da aumentare quando l'estrattore legge cose nuove
@@ -132,6 +136,17 @@ func trName(en string) string {
 	}
 	if it, g := itName(en); g != nil {
 		return it
+	}
+	if x := regexp.MustCompile(`\s*\(.*\)$`).ReplaceAllString(en, ""); x != en {
+		if it, g := itName(x); g != nil {
+			return it
+		}
+	}
+	// statistiche degli oggetti (es. "Critical Strike Damage Multiplier")
+	if g := gxLoad(); g != nil {
+		if a, ok := g.statSlug[textSlug(en)]; ok && a.StatIt != "" {
+			return a.StatIt
+		}
 	}
 	return ""
 }

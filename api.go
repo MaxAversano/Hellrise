@@ -142,6 +142,22 @@ func setupAPI(mux *http.ServeMux) {
 		jsonOut(w, f)
 	})
 
+	// build completa nel formato D4Builds, per tutte le fonti
+	mux.HandleFunc("/api/fullbuild", func(w http.ResponseWriter, r *http.Request) {
+		q := r.URL.Query()
+		u := keyURL(q.Get("u"))
+		if strings.HasPrefix(u, "https://d4builds.gg/") {
+			u += "/"
+		}
+		b, err := anyFull(u, q.Get("mx"))
+		if err != nil {
+			jsonErr(w, 404, err.Error())
+			return
+		}
+		w.Header().Set("Content-Type", "application/json; charset=utf-8")
+		w.Write(b)
+	})
+
 	// paragon usato dall'overlay (planner Maxroll o build D4Builds)
 	mux.HandleFunc("/api/ovparagon", func(w http.ResponseWriter, r *http.Request) {
 		id := r.URL.Query().Get("id")

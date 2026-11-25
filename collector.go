@@ -212,22 +212,36 @@ func collect() {
 		nMoba += len(l)
 	}
 	setStep("Mobalytics: dettagli delle build", 10, 10+nMoba+nD4b)
+	fidx := fullIndex()
 	for n, list := range bySeason {
 		details := map[string]*PBuild{}
 		for _, b := range list {
 			setStep(fmt.Sprintf("Mobalytics · stagione %d", n), -1, -1)
 			upd := strconv.FormatInt(b.Updated, 10)
-			if old := serverDetail("moba", b.URL); old != nil && b.Updated > 0 && old.Updated == upd {
+			fe, hasFull := fidx[hashURL(keyURL(b.URL))]
+			if old := serverDetail("moba", b.URL); old != nil && b.Updated > 0 && old.Updated == upd && hasFull && fe.XV == d4bExtractVer {
 				stepDone(true) // non è cambiata dall'ultima lettura: resta quella sul server
 				continue
 			}
 			mobaDetailCache.Lock()
 			delete(mobaDetailCache.m, b.URL)
 			mobaDetailCache.Unlock()
+			mobaStates.Lock()
+			delete(mobaStates.m, b.URL)
+			mobaStates.Unlock()
 			d, err := mobaBuildDetail(b.URL)
 			if err == nil {
 				d.Updated = upd
 				details[keyURL(b.URL)] = d
+				// stessa build nel formato completo (come D4Builds), in italiano
+				if f, e := mobaFull(b.URL); e == nil {
+					f.URL, f.At = b.URL, time.Now().Unix()
+					if e := uploadFull(b.URL, f); e != nil {
+						log.Printf("raccolta: mobalytics completa %s: %v", b.URL, e)
+					}
+				} else {
+					log.Printf("raccolta: mobalytics completa %s: %v", b.URL, e)
+				}
 			}
 			stepDone(err == nil)
 			if len(details) >= 10 {
@@ -244,7 +258,6 @@ func collect() {
 	}
 
 	// 3) dettagli delle build D4Builds (elenco del sito e build di Rob)
-	fidx := fullIndex()
 	for n, urls := range d4bURLs {
 		details := map[string]*PBuild{}
 		for _, u := range urls {

@@ -436,7 +436,18 @@ function viewFromPlanner(p, src) {
   });
   return { src, variants, notes: null, tr: {}, filters: p.filters || [], plannerId: p.id, plannerUrl: p.url };
 }
-function viewFromFull(f) { (f.variants || []).forEach(v => { v.skills = (v.skills || []).filter(x => x && x.n && !/dropdown arrow/i.test(x.n) && !/\/UI\//.test(x.i || '')); }); return { src: 'd4b', variants: f.variants || [], notes: f.notes, notesTitle: f.notesTitle, tr: f.tr || {}, head: f.head || {}, at: f.at }; }
+function viewFromFull(f) { (f.variants || []).forEach(v => { v.skills = (v.skills || []).filter(x => x && x.n && !/dropdown arrow/i.test(x.n) && !/\/UI\//.test(x.i || '')); }); return { src: 'd4b', from: f.src || 'd4b', variants: f.variants || [], notes: f.notes, notesTitle: f.notesTitle, tr: f.tr || {}, head: f.head || {}, at: f.src ? 0 : f.at, filters: f.filters || [], plannerId: f.planner || '', plannerUrl: f.planner ? 'https://maxroll.gg/d4/planner/' + f.planner : '' }; }
+const fullCache = {};
+const getFull = (key, url) => (fullCache[key] ||= api(url).catch(e => { delete fullCache[key]; throw e; }));
+async function viewOf(b) {
+  // formato completo (come D4Builds) per tutte le fonti; se non c'è ancora, la versione ridotta
+  if (b.profile) { try { return viewFromFull(await getFull('mx:' + b.profile, '/api/fullbuild?mx=' + encodeURIComponent(b.profile))); } catch { return viewFromPlanner(await getPlanner(b.profile), 'maxroll'); } }
+  try { return viewFromFull(await getFull('u:' + b.url, '/api/fullbuild?u=' + encodeURIComponent(b.url))); }
+  catch (e) {
+    if (b.src === 'D4Builds') { try { const v = viewFromPlanner(await (plannerCache['d:' + b.url] ||= api('/api/d4bbuild?u=' + encodeURIComponent(b.url)).catch(e2 => { delete plannerCache['d:' + b.url]; throw e2; })), 'd4b'); v.partial = 1; return v; } catch { throw e; } }
+    const v = viewFromPlanner(await (plannerCache['m:' + b.url] ||= api('/api/mobabuild?u=' + encodeURIComponent(b.url)).catch(e2 => { delete plannerCache['m:' + b.url]; throw e2; })), 'moba'); v.partial = 1; return v;
+  }
+}
 function TN(view, en, it) { if (lang() === 'en') return en || it || ''; return it || view.tr[en] || en || ''; }
 function TSUB(view, en, it) { const main = TN(view, en, it); return main !== en && en ? en : ''; }
 function icoImg(u, cls, alt, fb) { return u ? `<img class="${cls || ''}" src="${esc(IMG(u))}" alt="${esc(alt || '')}" loading="lazy" ${fb ? `data-fb="${esc(IMG(fb))}"` : ''} onerror="if(this.dataset.fb&&this.src!==location.origin+this.dataset.fb&&!this.dataset.f){this.dataset.f=1;this.src=this.dataset.fb}else{this.style.visibility='hidden'}">` : ''; }
@@ -455,17 +466,8 @@ async function showBuild(b) {
   const token = (ui._tok = (ui._tok || 0) + 1);
   let view = null, note = '';
   try {
-    if (b.profile) view = viewFromPlanner(await getPlanner(b.profile), 'maxroll');
-    else if (b.src === 'D4Builds') {
-      try { view = viewFromFull(await (plannerCache['f:' + b.url] ||= api('/api/d4bfull?u=' + encodeURIComponent(b.url)).catch(e => { delete plannerCache['f:' + b.url]; throw e; }))); }
-      catch (e) {
-        try { view = viewFromPlanner(await (plannerCache['d:' + b.url] ||= api('/api/d4bbuild?u=' + encodeURIComponent(b.url)).catch(e2 => { delete plannerCache['d:' + b.url]; throw e2; })), 'd4b'); note = 'Per ora c\'è solo l\'equipaggiamento: le altre schede (albero, paragon, mercenari, note) arrivano col prossimo aggiornamento dei dati.'; }
-        catch (e2) { const sim = similarMaxroll(b); if (sim) { view = viewFromPlanner(await getPlanner(sim.profile), 'maxroll'); note = `${esc(e.message)}. Intanto qui sotto vedi la guida Maxroll più simile, <b>${esc(sim.title)}</b>.`; } else throw e; }
-      }
-    } else if (b.src === 'Mobalytics') {
-      try { view = viewFromPlanner(await (plannerCache['m:' + b.url] ||= api('/api/mobabuild?u=' + encodeURIComponent(b.url)).catch(e => { delete plannerCache['m:' + b.url]; throw e; })), 'moba'); }
-      catch (e) { const sim = similarMaxroll(b); if (sim) { view = viewFromPlanner(await getPlanner(sim.profile), 'maxroll'); note = `${esc(e.message)}. Intanto qui sotto vedi la guida Maxroll più simile, <b>${esc(sim.title)}</b>.`; } else throw e; }
-    }
+    try { view = await viewOf(b); if (view.partial) note = 'Per ora c\'è solo l\'equipaggiamento: le altre schede (albero, paragon, mercenari, note) arrivano col prossimo aggiornamento dei dati.'; }
+    catch (e) { const sim = similarMaxroll(b); if (sim) { view = await viewOf(sim); note = `${esc(e.message)}. Intanto qui sotto vedi la guida Maxroll più simile, <b>${esc(sim.title)}</b>.`; } else throw e; }
   } catch (e) { note = 'Dettagli non disponibili: ' + esc(e.message); }
   if (token !== ui._tok) return;
   ui.view = view;
@@ -492,7 +494,7 @@ async function showBuild(b) {
   if (!has[ui.btab]) ui.btab = 'gear';
   el.innerHTML = head + (note ? `<div class="robinfo" style="background:rgba(120,160,255,.07);border-color:rgba(120,160,255,.2)">${note}</div>` : '') + `
     <div class="btabs">${BTABS.filter(t => has[t[0]]).map(t => `<button data-t="${t[0]}" class="${ui.btab === t[0] ? 'on' : ''}">${icoImg(t[2], 'ti')}${t[1]}</button>`).join('')}</div>
-    <div class="bvar">${view.variants.length > 1 ? `<select id="bvsel">${view.variants.map((x, i) => `<option value="${i}" ${i === ui.variant ? 'selected' : ''}>${esc(x.name || 'Variante ' + (i + 1))}</option>`).join('')}</select>` : `<span class="bvname">${esc(v.name || 'Build')}</span>`}${view.head?.season ? `<span class="muted">${esc(view.head.season.replace('Season', 'Stagione'))}</span>` : ''}<span class="sp"></span>${view.at ? `<span class="muted" style="font-size:11.5px">letta da D4Builds il ${dateLbl(view.at)}</span>` : ''}</div>
+    <div class="bvar">${view.variants.length > 1 ? `<select id="bvsel">${view.variants.map((x, i) => `<option value="${i}" ${i === ui.variant ? 'selected' : ''}>${esc(x.name || 'Variante ' + (i + 1))}</option>`).join('')}</select>` : `<span class="bvname">${esc(v.name || 'Build')}</span>`}${view.head?.season ? `<span class="muted">${esc(view.head.season.replace('Season', 'Stagione'))}</span>` : ''}<span class="sp"></span>${view.at ? `<span class="muted" style="font-size:11.5px">letta da D4Builds il ${dateLbl(view.at)}</span>` : ''}${view.from && view.from !== 'd4b' ? `<span class="muted" style="font-size:11.5px">da ${view.from === 'maxroll' ? 'Maxroll' : 'Mobalytics'}, nel formato di D4Builds</span>` : ''}</div>
     <div id="btab"></div>`;
   bindOpen();
   $$('.btabs button', el).forEach(x => x.onclick = () => { ui.btab = x.dataset.t; $$('.btabs button', el).forEach(y => y.classList.toggle('on', y === x)); drawTab(); if (isSaved(b.url)) touchSaved(b.url, { tab: ui.btab }); });
@@ -569,12 +571,12 @@ function charmsHTML(view, v) {
     const t = x.tip || {};
     if (t.set?.n && !sets[t.set.n]) sets[t.set.n] = t.set;
     const my = t.my || /mythic/i.test(x.i || '');
-    return `<div class="ccard ${x.isSeal ? 'seal' : ''} ${my ? 'my' : ''}"><div class="h">${x.i ? icoImg(x.i, '', x.n) : ''}<div><b>${esc(TN(view, t.n || x.n, x.it))}</b><small>${x.isSeal ? 'Sigillo' : (t.set?.n ? esc(t.set.n) : (my ? 'Talismano mitico' : 'Talismano'))}</small></div></div>
-      ${t.vals?.length ? `<ul class="cvals">${t.vals.map(y => `<li class="${y.k === 'm' ? 'm' : ''}">${y.b ? `<em>${esc(y.b)}:</em> ` : ''}${esc(y.t)}</li>`).join('')}</ul>` : ''}
-      ${t.eff?.length ? `<div class="ceff">${t.eff.map(e => `<p>${esc(e)}</p>`).join('')}</div>` : ''}</div>`;
+    return `<div class="ccard ${x.isSeal ? 'seal' : ''} ${my ? 'my' : ''}"><div class="h">${x.i ? icoImg(x.i, '', x.n) : ''}<div><b>${esc(TN(view, t.n || x.n, x.it))}</b><small>${x.isSeal ? 'Sigillo' : (t.set?.n ? esc(TN(view, t.set.n, '')) : (my ? 'Talismano mitico' : 'Talismano'))}</small></div></div>
+      ${t.vals?.length ? `<ul class="cvals">${t.vals.map(y => `<li class="${y.k === 'm' ? 'm' : ''}">${y.b ? `<em>${esc(TN(view, y.b, ''))}:</em> ` : ''}${esc(TN(view, y.t, ''))}</li>`).join('')}</ul>` : ''}
+      ${t.eff?.length ? `<div class="ceff">${t.eff.map(e => `<p>${esc(TN(view, e, ''))}</p>`).join('')}</div>` : ''}</div>`;
   };
   const cards = list.map(card).join('');
-  const setHTML = Object.values(sets).map(st => { st = { ...st, pieces: st.pieces.filter(p => !st.pieces.some(q => q !== p && q[0] !== p[0] && p[0].includes(q[0]))) }; const have = st.pieces.filter(p => p[1]).length; return `<div class="cset"><div class="h"><b>${esc(st.n)}</b><span class="badge">${have}/${st.pieces.length} pezzi</span></div><div class="cpieces">${st.pieces.map(p => `<span class="${p[1] ? 'on' : ''}">${esc(TN(view, p[0], ''))}</span>`).join('')}</div>${st.bon.map(b => `<div class="cbon ${b[2] ? 'on' : ''}"><em>${esc(b[0].replace('Set:', 'set:'))}</em> ${esc(b[1])}</div>`).join('')}</div>`; }).join('');
+  const setHTML = Object.values(sets).map(st => { st = { ...st, pieces: st.pieces.filter(p => !st.pieces.some(q => q !== p && q[0] !== p[0] && p[0].includes(q[0]))) }; const have = st.pieces.filter(p => p[1]).length; return `<div class="cset"><div class="h"><b>${esc(TN(view, st.n, ''))}</b><span class="badge">${have}/${st.pieces.length} pezzi</span></div><div class="cpieces">${st.pieces.map(p => `<span class="${p[1] ? 'on' : ''}">${esc(TN(view, p[0], ''))}</span>`).join('')}</div>${st.bon.map(b => `<div class="cbon ${b[2] ? 'on' : ''}"><em>${esc(b[0].replace('Set:', 'set:'))}</em> ${esc(TN(view, b[1], ''))}</div>`).join('')}</div>`; }).join('');
   return `<div class="ccards">${cards}</div>${setHTML ? `<div class="csets">${setHTML}</div>` : ''}`;
 }
 function notesHTML(view, notes) {
@@ -675,16 +677,18 @@ let TIPS = [];
 function regTip(t) { TIPS.push(t); return TIPS.length - 1; }
 function tipHTML(t) {
   const { x, view } = t, p = x.tip || {};
+  const T = s => esc(TN(view, s, ''));
   if (t.kind === 'charm') {
-    return `<div class="th"><b class="${p.my ? 'k-mythic' : 'tl'}">${esc(TN(view, p.n || x.n, x.it))}</b><small>${p.set?.n ? esc(p.set.n) : (p.my ? 'Talismano mitico' : 'Talismano')}</small></div>${(p.vals || []).map(v => `<div class="tv">${v.b ? `<em>${esc(v.b)}:</em> ` : ''}${esc(v.t)}</div>`).join('')}${(p.eff || []).map(e => `<p>${esc(e)}</p>`).join('')}`;
+    return `<div class="th"><b class="${p.my ? 'k-mythic' : 'tl'}">${esc(TN(view, p.n || x.n, x.it))}</b><small>${p.set?.n ? T(p.set.n) : (p.my ? 'Talismano mitico' : 'Talismano')}</small></div>${(p.vals || []).map(v => `<div class="tv">${v.b ? `<em>${T(v.b)}:</em> ` : ''}${T(v.t)}</div>`).join('')}${(p.eff || []).map(e => `<p>${T(e)}</p>`).join('')}`;
   }
-  const kind = /aspect/i.test(x.n || '') ? 'legendary' : (p.sub && /mythic/i.test(p.sub) ? 'mythic' : 'unique');
-  return `<div class="th"><b class="k-${kind}">${esc(TN(view, x.n, x.it))}</b><small>${esc(p.sub || TN(view, x.slot, x.slotIt))}</small></div>
-    ${p.desc ? `<p>${esc(p.desc)}</p>` : ''}
-    ${(p.stats || []).length ? `<div class="tsec">${p.stats.map(s => `<div class="tv">${s.ga ? '<i class="ga">★</i> ' : '• '}${esc(s.t)}</div>`).join('')}</div>` : ''}
-    ${(p.temper || []).length ? `<div class="tsec">${p.temper.map(s => `<div class="tv tp">⚒ ${esc(s)}</div>`).join('')}</div>` : ''}
-    ${(p.eff || []).map(e => `<p class="eff">${esc(e)}</p>`).join('')}
-    ${(p.hor || []).map(e => `<div class="tv hor">${esc(e)}</div>`).join('')}
+  const kind = /aspect/i.test(x.n || '') ? 'legendary' : (view.tr['~m:' + x.n] ? 'mythic' : 'unique');
+  const sub = (p.sub || '').replace(/^Mythic Unique/, 'Unico mitico').replace(/^Unique/, 'Unico').replace(/^Legendary/, 'Leggendario').replace(/^Runeword/, 'Parola runica');
+  return `<div class="th"><b class="k-${kind}">${esc(TN(view, x.n, x.it))}</b><small>${esc(lang() === 'en' ? (p.sub || x.slot) : (sub.replace(/(Helm|Chest Armor|Gloves|Pants|Boots|Amulet|Ring \d|Ring|Offhand|Weapon.*|Bludgeoning Weapon|Slashing Weapon|Dual-Wield Weapon \d)$/, m => TN(view, m, '')) || TN(view, x.slot, x.slotIt)))}</small></div>
+    ${p.desc ? `<p>${T(p.desc)}</p>` : ''}
+    ${(p.stats || []).length ? `<div class="tsec">${p.stats.map(s => `<div class="tv">${s.ga ? '<i class="ga">★</i> ' : '• '}${T(s.t)}</div>`).join('')}</div>` : ''}
+    ${(p.temper || []).length ? `<div class="tsec">${p.temper.map(s => `<div class="tv tp">⚒ ${T(s)}</div>`).join('')}</div>` : ''}
+    ${(p.eff || []).map(e => `<p class="eff">${T(e)}</p>`).join('')}
+    ${(p.hor || []).map(e => `<div class="tv hor">${T(e)}</div>`).join('')}
     ${p.drop ? `<div class="tdrop">Cade da: <b>${esc(p.drop)}</b></div>` : ''}
     ${!x.tip && view.src === 'd4b' ? `<div class="muted" style="font-size:11.5px;margin-top:6px">Dettagli in arrivo col prossimo aggiornamento dei dati.</div>` : ''}${x.asp ? `<div class="tv">${esc(TN(view, x.asp.n, x.asp.it))}</div>` : ''}`;
 }
@@ -765,7 +769,8 @@ function lootReq(view, v, b) {
   const uniques = [], sets = new Set();
   (v.gear || []).forEach(x => { if (x.n && !/aspect/i.test(x.n) && !/^empty$/i.test(x.slot)) uniques.push(x.n); });
   (v.charms || []).forEach(c => { if (c.tip?.set?.n) sets.add(c.tip.set.n); else if (c.tip?.my || /mythic|unique/i.test(c.i || '')) uniques.push(c.n); });
-  const slots = (v.stats || []).map(st => ({ slot: st.slot, stats: st.list.filter(x => !x.tf && !/^weapon type$/i.test(x.t)).map(x => x.t) }));
+  let slots = (v.stats || []).map(st => ({ slot: st.slot, stats: st.list.filter(x => !x.tf && !/^weapon type$/i.test(x.t)).map(x => x.t) }));
+  if (!slots.length) slots = (v.gear || []).filter(x => x.tip?.stats?.length).map(x => ({ slot: x.slot, stats: x.tip.stats.map(s => s.t) }));
   return { name: b.title, uniques, sets: [...sets], slots, minAffix: +($('#lfmin')?.value || 3), hide: !!$('#lfhide')?.checked };
 }
 
@@ -781,7 +786,7 @@ function bindGearExtras(box, view, v, b, redraw) {
     out.innerHTML = '<div class="skel" style="height:60px;margin-top:10px"></div>';
     try {
       const r = await post('/api/lootfilter', lootReq(view, v, b));
-      out.innerHTML = `<div class="lfres"><div class="row"><b>Filtro pronto · ${r.rules.length} regole</b><span class="sp"></span><button class="btn sm pri" id="lfcopy">${IC.copy} Copia codice</button></div><div class="chips" style="margin:8px 0">${r.rules.map(x => `<span class="badge">${esc(x)}</span>`).join('')}</div><textarea class="inp lfcode" readonly>${esc(r.code)}</textarea>${r.missing?.length ? `<div class="muted" style="font-size:11.5px;margin-top:6px">Non messe nel filtro (il gioco non le riconosce come affissi): ${esc(r.missing.join(', '))}</div>` : ''}${!(v.stats || []).length ? `<div class="muted" style="font-size:11.5px;margin-top:6px">Questa fonte non indica gli affissi per slot: il filtro mette in risalto solo mitici, unici e set.</div>` : ''}</div>`;
+      out.innerHTML = `<div class="lfres"><div class="row"><b>Filtro pronto · ${r.rules.length} regole</b><span class="sp"></span><button class="btn sm pri" id="lfcopy">${IC.copy} Copia codice</button></div><div class="chips" style="margin:8px 0">${r.rules.map(x => `<span class="badge">${esc(x)}</span>`).join('')}</div><textarea class="inp lfcode" readonly>${esc(r.code)}</textarea>${r.missing?.length ? `<div class="muted" style="font-size:11.5px;margin-top:6px">Non messe nel filtro (il gioco non le riconosce come affissi): ${esc(r.missing.join(', '))}</div>` : ''}${!(v.stats || []).length && !(v.gear || []).some(x => x.tip?.stats?.length) ? `<div class="muted" style="font-size:11.5px;margin-top:6px">Questa fonte non indica gli affissi per slot: il filtro mette in risalto solo mitici, unici e set.</div>` : ''}</div>`;
       $('#lfcopy', out).onclick = () => copy(r.code, 'Codice del filtro');
     } catch (e) { out.innerHTML = `<div class="muted" style="margin-top:8px">${esc(e.message)}</div>`; }
   });
@@ -822,11 +827,7 @@ function cmpBar() {
   $('#cmpgo', el)?.addEventListener('click', () => { location.hash = '#/cmp'; });
   $('#cmpx', el).onclick = () => { localStorage.removeItem('hr.cmp'); cmpBar(); };
 }
-async function loadView(b) {
-  if (b.profile) return viewFromPlanner(await getPlanner(b.profile), 'maxroll');
-  if (b.src === 'D4Builds') { try { return viewFromFull(await api('/api/d4bfull?u=' + encodeURIComponent(b.url))); } catch { return viewFromPlanner(await api('/api/d4bbuild?u=' + encodeURIComponent(b.url)), 'd4b'); } }
-  return viewFromPlanner(await api('/api/mobabuild?u=' + encodeURIComponent(b.url)), 'moba');
-}
+async function loadView(b) { return viewOf(b); }
 const pickVariant = (view, b) => { if (!/level/i.test(b.type)) { const i = view.variants.findIndex(v => /endgame/i.test(v.name || '')); if (i >= 0) return view.variants[i]; const j = view.variants.findIndex(v => !/level/i.test(v.name || '')); if (j >= 0) return view.variants[j]; } return view.variants[0]; };
 const slotNorm = s => { s = String(s || '').toLowerCase(); if (/^ring/.test(s)) return s.replace(/\s*\d$/, '') + (/(2)$/.test(s) ? ' 2' : ' 1'); if (isWeapon(s)) return 'weapon'; return s; };
 PAGES.cmp = async main => {
