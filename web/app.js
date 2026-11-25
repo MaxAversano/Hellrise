@@ -391,7 +391,7 @@ PAGES.drop = async main => {
     $$('.src[data-b]', $('#dres')).forEach(s => s.onclick = () => { ui.boss = s.dataset.b; draw(); drawBosses(); $('#main').scrollTop = 0; });
   };
   const drawBosses = () => {
-    $('#dboss').innerHTML = `<div class="lbl" style="padding:6px 12px 8px">Boss e fonti</div>` + (L.bosses || []).map(b => `<div class="bossrow ${ui.boss === b.id ? 'on' : ''}" data-b="${b.id}"><span class="ic" style="width:30px;height:30px;border-radius:9px;display:grid;place-items:center;background:${b.kind === 'boss' ? 'rgba(255,61,31,.16)' : (b.kind === 'mythic' ? 'rgba(217,160,255,.16)' : 'rgba(255,255,255,.07)')};color:${b.kind === 'boss' ? '#ff8a6a' : (b.kind === 'mythic' ? '#d9a0ff' : 'var(--ink2)')}">${(b.kind === 'boss' ? IC.boss : IC.star).replace('<svg', '<svg width="16" height="16"')}</span><div class="t"><b>${esc(b.name)}</b><small>${b.items.length} oggetti${b.location ? ' · ' + esc(b.location) : ''}</small></div></div>`).join('');
+    $('#dboss').innerHTML = `<div class="lbl" style="padding:6px 12px 8px">Boss e fonti</div>` + (L.bosses || []).filter(b => (b.items || []).length).map(b => `<div class="bossrow ${ui.boss === b.id ? 'on' : ''}" data-b="${b.id}"><span class="ic" style="width:30px;height:30px;border-radius:9px;display:grid;place-items:center;background:${b.kind === 'boss' ? 'rgba(255,61,31,.16)' : (b.kind === 'mythic' ? 'rgba(217,160,255,.16)' : 'rgba(255,255,255,.07)')};color:${b.kind === 'boss' ? '#ff8a6a' : (b.kind === 'mythic' ? '#d9a0ff' : 'var(--ink2)')}">${(b.kind === 'boss' ? IC.boss : IC.star).replace('<svg', '<svg width="16" height="16"')}</span><div class="t"><b>${esc(b.name)}</b><small>${(b.items || []).length} oggetti${b.location ? ' · ' + esc(b.location) : ''}</small></div></div>`).join('');
     $$('.bossrow', $('#dboss')).forEach(r => r.onclick = () => { ui.boss = ui.boss === r.dataset.b ? '' : r.dataset.b; draw(); drawBosses(); });
   };
   draw(); drawBosses();
@@ -725,7 +725,7 @@ function collectTxt() {
     const builds = (B?.builds || []).filter(b => norm(b.title).includes(q)).slice(0, 6);
     const bossById = Object.fromEntries((L?.bosses || []).map(b => [b.id, b]));
     box.innerHTML = (items.length ? `<div class="lbl" style="padding:6px 10px">Oggetti</div>` + items.map(it => `<div class="mrow" data-q="${esc(it.en)}"><div class="t"><b style="color:${it.mythic ? '#d9a0ff' : '#e8b56a'}">${esc(nm(it.name, it.en))}</b><small>${esc([...new Set(it.sources.map(s => bossById[s.boss]?.name).filter(Boolean))].slice(0, 3).join(' · '))}</small></div></div>`).join('') : '') +
-      (bosses.length ? `<div class="lbl" style="padding:6px 10px">Boss</div>` + bosses.map(b => `<div class="mrow" data-boss="${b.id}"><div class="t"><b>${esc(b.name)}</b><small>${b.items.length} oggetti</small></div></div>`).join('') : '') +
+      (bosses.length ? `<div class="lbl" style="padding:6px 10px">Boss</div>` + bosses.map(b => `<div class="mrow" data-boss="${b.id}"><div class="t"><b>${esc(b.name)}</b><small>${(b.items || []).length} oggetti</small></div></div>`).join('') : '') +
       (builds.length ? `<div class="lbl" style="padding:6px 10px">Build</div>` + builds.map(b => `<div class="mrow" data-burl="${esc(b.url)}" data-bcls="${b.cls}">${tierBadge(b.tier)}<div class="t"><b>${esc(b.title)}</b><small>${esc(b.src)} · ${esc(clsName(b.cls))}</small></div></div>`).join('') : '') ||
       `<div class="muted" style="padding:12px">Nessun risultato</div>`;
     box.classList.add('on');

@@ -357,7 +357,7 @@ func buildLoot(v *SeasonView, s *seasonRaw) {
 	getBoss := func(id, name, loc, kind string) *LootBoss {
 		b := bosses[id]
 		if b == nil {
-			b = &LootBoss{ID: id, Name: name, Location: loc, Kind: kind}
+			b = &LootBoss{ID: id, Name: name, Location: loc, Kind: kind, Items: []int{}}
 			bosses[id] = b
 			order = append(order, id)
 		}
