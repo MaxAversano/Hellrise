@@ -57,9 +57,12 @@ type OverlaySet struct {
 	CellPx    float64        `json:"cellPx"` // passo delle caselle sullo schermo in pixel (modalità sovrapposta)
 	AlignX    float64        `json:"alignX"` // angolo in alto a sinistra della griglia (frazione dello schermo)
 	AlignY    float64        `json:"alignY"`
-	Rot       map[string]int `json:"rot"`     // rotazione scelta da te per ogni tavola (quarti di giro)
-	Opacity   int            `json:"opacity"` // 20-100 %
-	MoveKey   int            `json:"moveKey"` // tasto da tenere premuto per spostare e bloccare i riquadri (codice virtuale Windows)
+	Rot       map[string]int `json:"rot"`      // rotazione scelta da te per ogni tavola (quarti di giro)
+	Opacity   int            `json:"opacity"`  // 20-100 %
+	MoveKey   int            `json:"moveKey"`  // tasto da tenere premuto per spostare e bloccare i riquadri (codice virtuale Windows)
+	Rotation  OWidget        `json:"rotation"` // riquadro con la rotazione delle abilità
+	RotTitle  string         `json:"rotTitle"`
+	RotLines  []string       `json:"rotLines"`
 }
 
 func defaultSettings() Settings {
@@ -68,7 +71,7 @@ func defaultSettings() Settings {
 		Notifications: true, NotifyBoss: true, NotifyHelltide: false, NotifyLegion: false, NotifyBefore: 5,
 		Blur: true, Motion: true, Accent: "ember", Lang: "it",
 		Overlay: OverlaySet{Enabled: true, Scale: 1, Timers: OWidget{On: true, X: 0.012, Y: 0.28}, TBoss: true, THelltide: true, TLegion: true,
-			Paragon: OWidget{On: true, X: 0.69, Y: 0.14}, Cell: 13, Mode: "auto", Opacity: 92, MoveKey: 0xA4, CellPx: 40, AlignX: 0.3, AlignY: 0.2},
+			Paragon: OWidget{On: true, X: 0.69, Y: 0.14}, Rotation: OWidget{On: false, X: 0.012, Y: 0.55}, Cell: 13, Mode: "auto", Opacity: 92, MoveKey: 0xA4, CellPx: 40, AlignX: 0.3, AlignY: 0.2},
 	}
 }
 
@@ -140,16 +143,18 @@ func betterStompToken() string {
 }
 
 type SavedBuild struct {
-	URL     string `json:"url"`
-	Src     string `json:"src"`
-	Title   string `json:"title"`
-	Cls     string `json:"cls"`
-	Type    string `json:"type"`
-	Season  int    `json:"season"`
-	Profile string `json:"profile,omitempty"`
-	Variant int    `json:"variant"`
-	Tab     string `json:"tab,omitempty"`
-	Note    string `json:"note,omitempty"`
-	At      int64  `json:"at"`
-	Seen    int64  `json:"seen"` // data di aggiornamento della build vista l'ultima volta
+	URL     string   `json:"url"`
+	Src     string   `json:"src"`
+	Title   string   `json:"title"`
+	Cls     string   `json:"cls"`
+	Type    string   `json:"type"`
+	Season  int      `json:"season"`
+	Profile string   `json:"profile,omitempty"`
+	Variant int      `json:"variant"`
+	Tab     string   `json:"tab,omitempty"`
+	Note    string   `json:"note,omitempty"`
+	At      int64    `json:"at"`
+	Seen    int64    `json:"seen"`            // data di aggiornamento della build vista l'ultima volta
+	Told    int64    `json:"told"`            // data per cui è già partito l'avviso di Windows
+	Owned   []string `json:"owned,omitempty"` // pezzi che hai già ("Helm", "Ring 1"…)
 }

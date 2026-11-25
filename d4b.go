@@ -42,7 +42,7 @@ type D4Full struct {
 	XV       int               `json:"xv"`
 }
 
-const d4bExtractVer = 2 // da aumentare quando l'estrattore legge cose nuove
+const d4bExtractVer = 3 // da aumentare quando l'estrattore legge cose nuove
 
 func d4bFullRead(u string) (*D4Full, error) {
 	if !strings.HasPrefix(u, "https://d4builds.gg/builds/") {

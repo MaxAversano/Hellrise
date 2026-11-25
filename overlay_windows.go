@@ -128,7 +128,13 @@ func overlayParagon() (*PBuild, string) {
 		ovPar.id, ovPar.build, ovPar.err = o.Planner, nil, ""
 		id := o.Planner
 		go func() {
-			b, err := plannerBuild(id)
+			var b *PBuild
+			var err error
+			if strings.HasPrefix(id, "d4b:") {
+				b, err = d4bParagonBuild(strings.TrimPrefix(id, "d4b:"))
+			} else {
+				b, err = plannerBuild(id)
+			}
 			ovPar.Lock()
 			if ovPar.id == id {
 				ovPar.build = b
@@ -276,13 +282,16 @@ func paintOverlay(hdc uintptr) {
 	if o.Paragon.On {
 		hits["paragon"] = drawParagon(mem, o, sc, k)
 	}
+	if o.Rotation.On && len(o.RotLines) > 0 {
+		hits["rotation"] = drawRotation(mem, o, sc, k)
+	}
 	locks := map[string]rect{}
 	if ovEdit || ovMove {
 		for key, r := range hits {
 			if r.r <= r.l {
 				continue
 			}
-			locked := key == "timers" && o.Timers.Lock || key == "paragon" && o.Paragon.Lock
+			locked := widgetOf(&o, key).Lock
 			c := cAcc2
 			if locked {
 				c = cMute
@@ -314,6 +323,41 @@ func paintOverlay(hdc uintptr) {
 	pSelectObject.Call(mem, old)
 	pDeleteObject.Call(bmp)
 	pDeleteDC.Call(mem)
+}
+
+func widgetOf(o *OverlaySet, key string) *OWidget {
+	switch key {
+	case "timers":
+		return &o.Timers
+	case "rotation":
+		return &o.Rotation
+	}
+	return &o.Paragon
+}
+
+// riquadro con la rotazione delle abilità della build scelta
+func drawRotation(hdc uintptr, o OverlaySet, sc func(float64) int32, k float64) rect {
+	lines := o.RotLines
+	if len(lines) > 12 {
+		lines = lines[:12]
+	}
+	w := sc(330)
+	rowH := sc(22)
+	h := sc(32) + rowH*int32(len(lines)) + sc(10)
+	x, y := widgetOrigin(o.Rotation, w, h)
+	ovRound(hdc, rect{x, y, x + w, y + h}, sc(14), cPanel, cBorder)
+	title := "ROTAZIONE"
+	if o.RotTitle != "" {
+		title += " · " + strings.ToUpper(o.RotTitle)
+	}
+	ovText(hdc, title, rect{x + sc(14), y + sc(5), x + w - sc(34), y + sc(28)}, cMute, ovFont(int(10.5*k), true), dtLeft)
+	ry := y + sc(30)
+	for i, l := range lines {
+		ovText(hdc, fmt.Sprintf("%d", i+1), rect{x + sc(12), ry, x + sc(30), ry + rowH}, cAcc2, ovFont(int(12*k), true), dtLeft)
+		ovText(hdc, l, rect{x + sc(32), ry, x + w - sc(10), ry + rowH}, cInk, ovFont(int(12.5*k), false), dtLeft|0x8000)
+		ry += rowH
+	}
+	return rect{x, y, x + w, y + h}
 }
 
 func widgetOrigin(w OWidget, width, height int32) (int32, int32) {
@@ -934,11 +978,8 @@ func ovWndProc(hwnd, msg, wparam, lparam uintptr) uintptr {
 			for key, r := range ovLocks {
 				if in(r) {
 					updateSettings(func(s *Settings) {
-						if key == "timers" {
-							s.Overlay.Timers.Lock = !s.Overlay.Timers.Lock
-						} else {
-							s.Overlay.Paragon.Lock = !s.Overlay.Paragon.Lock
-						}
+						w := widgetOf(&s.Overlay, key)
+						w.Lock = !w.Lock
 					})
 					pInvalidateRect.Call(hwnd, 0, 0)
 					return 0
@@ -946,7 +987,7 @@ func ovWndProc(hwnd, msg, wparam, lparam uintptr) uintptr {
 			}
 			o := getSettings().Overlay
 			for key, r := range ovHits {
-				if !in(r) || key == "timers" && o.Timers.Lock || key == "paragon" && o.Paragon.Lock {
+				if !in(r) || widgetOf(&o, key).Lock {
 					continue
 				}
 				ovDrag, ovDragDX, ovDragDY = key, x-r.l, y-r.t
@@ -960,11 +1001,8 @@ func ovWndProc(hwnd, msg, wparam, lparam uintptr) uintptr {
 			fx, fy := float64(x-ovDragDX)/float64(ovW), float64(y-ovDragDY)/float64(ovH)
 			key := ovDrag
 			setMu.Lock()
-			if key == "timers" {
-				settings.Overlay.Timers.X, settings.Overlay.Timers.Y = fx, fy
-			} else {
-				settings.Overlay.Paragon.X, settings.Overlay.Paragon.Y = fx, fy
-			}
+			w := widgetOf(&settings.Overlay, key)
+			w.X, w.Y = fx, fy
 			setMu.Unlock()
 			pInvalidateRect.Call(hwnd, 0, 0)
 		}

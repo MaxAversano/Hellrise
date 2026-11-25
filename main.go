@@ -95,6 +95,7 @@ func main() {
 	go mobaLoad()
 	go collectLoop()
 	go eventNotifyLoop()
+	go savedNotifyLoop()
 	go localUpdateLoop()
 	go serverSyncLoop()
 	go cleanupOldExe()

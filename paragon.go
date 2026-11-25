@@ -4,8 +4,11 @@ package main
 // con le caselle da prendere. Usate dalla pagina Build e dall'overlay in gioco.
 
 import (
+	"encoding/json"
+	"fmt"
 	"sort"
 	"strconv"
+	"strings"
 )
 
 type rawBoard struct {
@@ -367,4 +370,103 @@ func maxf(a, b float64) float64 {
 		return a
 	}
 	return b
+}
+
+// paragon di una build D4Builds nel formato dell'overlay: le tavole vengono riconosciute
+// sui dati di gioco (stessa forma delle tavole Maxroll) e i nodi presi presi dalla pagina
+func d4bParagonBuild(u string) (*PBuild, error) {
+	var f D4Full
+	if b := serverFull(u); b != nil {
+		if err := json.Unmarshal(b, &f); err != nil {
+			return nil, err
+		}
+	} else if isCollector() {
+		ff, err := d4bFullRead(u)
+		if err != nil {
+			return nil, err
+		}
+		f = *ff
+	} else {
+		return nil, fmt.Errorf("build non ancora raccolta")
+	}
+	d := getGD()
+	cls := strings.ToLower(f.Head["cls"])
+	tok := map[string]string{"barbarian": "barb", "druid": "druid", "necromancer": "necro", "rogue": "rogue", "sorcerer": "sorc", "spiritborn": "spirit", "paladin": "paladin", "warlock": "warlock"}[cls]
+	boardID := func(name string) string {
+		if d == nil {
+			return ""
+		}
+		if strings.HasPrefix(strings.ToLower(name), "starting") {
+			name = "Start"
+		}
+		var cands []string
+		for k, b := range d.Boards {
+			if strings.EqualFold(b.En, name) {
+				cands = append(cands, k)
+			}
+		}
+		sort.Strings(cands)
+		for _, k := range cands {
+			if tok != "" && strings.Contains(strings.ToLower(k), tok) {
+				return k
+			}
+		}
+		if len(cands) > 0 {
+			return cands[0]
+		}
+		return ""
+	}
+	glyphID := func(name string) string {
+		if d == nil || name == "" {
+			return ""
+		}
+		for k, g := range d.Glyphs {
+			if strings.EqualFold(g[1], name) {
+				return k
+			}
+		}
+		return ""
+	}
+	out := &PBuild{ID: "d4b", Name: f.Head["title"], URL: u}
+	for _, v := range f.Variants {
+		pv := PVariant{Name: fmt.Sprint(v["name"])}
+		par, _ := v["paragon"].(map[string]any)
+		boards, _ := par["boards"].([]any)
+		st := PStep{Name: "Paragon"}
+		for _, bx := range boards {
+			bm, _ := bx.(map[string]any)
+			name, _ := bm["n"].(string)
+			g, _ := bm["g"].(string)
+			rot, _ := bm["r"].(float64)
+			id := boardID(name)
+			rb := rawBoard{ID: id, Nodes: map[string]int{}, Rotation: (int(rot)/90%4 + 4) % 4, Glyph: glyphID(g)}
+			w := 21
+			if d != nil && d.Boards[id].Width > 0 {
+				w = d.Boards[id].Width
+			}
+			tiles, _ := bm["tiles"].([]any)
+			for _, tx := range tiles {
+				t, _ := tx.([]any)
+				if len(t) < 3 {
+					continue
+				}
+				r, _ := t[0].(float64)
+				c, _ := t[1].(float64)
+				a, _ := t[2].(float64)
+				if a == 1 {
+					rb.Nodes[itoa(int(r)*w+int(c))] = 1
+				}
+			}
+			pb := paragonBoard(d, rb)
+			if id == "" {
+				pb.Name, pb.En = name, name
+			}
+			st.Boards = append(st.Boards, pb)
+		}
+		if len(st.Boards) > 0 {
+			pv.Paragon = []PStep{st}
+		}
+		out.Variants = append(out.Variants, pv)
+	}
+	return out, nil
 }

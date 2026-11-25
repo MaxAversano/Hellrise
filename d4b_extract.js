@@ -70,15 +70,42 @@
     await waitFor(() => !document.querySelector(sel), 800);
     return out;
   }
+  async function gearTip(it) {
+    const el = it.querySelector('.builder__gear__item__wrapper') || it;
+    const sel = '.unique__tooltip, .codex__tooltip';
+    const targets = [el, it.querySelector('.builder__gear__icon'), it.querySelector('img')];
+    targets.forEach(x => { fire(x, 'mouseover'); fire(x, 'mouseenter'); });
+    const t = await waitFor(() => document.querySelector(sel), 1200);
+    let out = null;
+    if (t) {
+      const isTemper = x => x.closest('[class*="--tempering"]');
+      out = {
+        n: T(t.querySelector('h2, [class*="tooltip__name"]')).replace(/Codex • .*$/, '').trim(),
+        sub: T(t.querySelector('[class*="tooltip__slot"]')),
+        cls: T(t.querySelector('[class*="tooltip__class"]')),
+        desc: T(t.querySelector('[class*="__description"]')),
+        stats: A(t, '[class*="terciary__stat"]:not([class*="terciary__stats"]), [class*="tooltip__stat"]:not([class*="tooltip__stats"]):not([class*="--horadric"])').filter(x => !isTemper(x)).map(x => ({ t: T(x), ga: x.querySelector('img[src*="ga.png"]') ? 1 : 0 })).filter(x => x.t),
+        temper: A(t, '[class*="--tempering"] [class*="tooltip__stat"]').map(T).filter(Boolean),
+        hor: A(t, '[class*="--horadric"]').map(T).filter(Boolean),
+        eff: A(t, '[class*="__effects"] > li').map(T),
+        drop: T(t.querySelector('[class*="drop_wrapper"]')).replace(/^Dropped By:\s*/, '')
+      };
+    }
+    targets.forEach(x => { fire(x, 'mouseout'); fire(x, 'mouseleave'); });
+    await waitFor(() => !document.querySelector(sel), 800);
+    return out;
+  }
   async function gearTab() {
     const c = content();
     const v = { gear: [], charms: [], runes: [], prime: [], skills: [], shards: [], stats: [] };
-    A(c, '.builder__gear__item').forEach(it => {
+    for (const it of A(c, '.builder__gear__item')) {
       const nameEl = it.querySelector('.builder__gear__name');
-      if (!nameEl) return;
+      if (!nameEl) continue;
       const kind = (nameEl.className.match(/builder__gear__name--(\w+)/) || [])[1] || '';
-      v.gear.push({ slot: T(it.querySelector('.builder__gear__slot')), n: T(nameEl), k: kind, i: (img(it.querySelector('.builder__gear__icon')) || {}).i || '', gems: A(it, '.builder__gem__icon').map(img).filter(x => x && x.n) });
-    });
+      const g = { slot: T(it.querySelector('.builder__gear__slot')), n: T(nameEl), k: kind, i: (img(it.querySelector('.builder__gear__icon')) || {}).i || '', gems: A(it, '.builder__gem__icon').map(img).filter(x => x && x.n) };
+      if (g.n && !/^empty$/i.test(g.slot)) g.tip = await gearTip(it);
+      v.gear.push(g);
+    }
     const sealEl = c.querySelector('.builder__seal');
     if (sealEl) { v.seal = img(sealEl); if (v.seal) v.seal.tip = await tipOf(sealEl, '.seal__tooltip'); }
     v.charms = [];

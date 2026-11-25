@@ -142,6 +142,38 @@ func setupAPI(mux *http.ServeMux) {
 		jsonOut(w, f)
 	})
 
+	// paragon usato dall'overlay (planner Maxroll o build D4Builds)
+	mux.HandleFunc("/api/ovparagon", func(w http.ResponseWriter, r *http.Request) {
+		id := r.URL.Query().Get("id")
+		var b *PBuild
+		var err error
+		if strings.HasPrefix(id, "d4b:") {
+			b, err = d4bParagonBuild(strings.TrimPrefix(id, "d4b:"))
+		} else {
+			b, err = plannerBuild(id)
+		}
+		if err != nil {
+			jsonErr(w, 502, err.Error())
+			return
+		}
+		jsonOut(w, b)
+	})
+
+	// filtro loot del gioco creato dalla build
+	mux.HandleFunc("/api/lootfilter", func(w http.ResponseWriter, r *http.Request) {
+		var q LFReq
+		if err := json.NewDecoder(r.Body).Decode(&q); err != nil {
+			jsonErr(w, 400, err.Error())
+			return
+		}
+		out := buildLootFilter(q)
+		if out.Code == "" {
+			jsonErr(w, 503, "dati di gioco non ancora pronti")
+			return
+		}
+		jsonOut(w, out)
+	})
+
 	mux.HandleFunc("/api/guide", func(w http.ResponseWriter, r *http.Request) {
 		u := r.URL.Query().Get("u")
 		if strings.HasPrefix(u, "https://") {

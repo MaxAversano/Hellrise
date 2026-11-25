@@ -129,6 +129,7 @@ function route() {
   S.page = p;
   $$('#side a').forEach(a => a.classList.toggle('on', a.dataset.p === (p === 'b' ? 'build' : p)));
   const fn = PAGES[p] || PAGES.home;
+  setTimeout(cmpBar, 0);
   const main = $('#main');
   main.scrollTop = 0;
   fn(main);
@@ -198,6 +199,7 @@ PAGES.home = async main => {
     <div class="home2">
       <div class="glass card"><h2>Le migliori build ora <span class="count">tier list di Rob2628</span><span class="sp"></span><a class="link" href="#/build" style="font-size:12.5px">Tutte le build →</a></h2><div class="mini" id="topb"><div class="skel" style="height:220px"></div></div></div>
       <div class="grid" style="align-content:start">
+        <div class="glass card"><h2>Dalla patch per te</h2><div id="hpatch"><div class="skel" style="height:60px"></div></div></div>
         <div class="glass card"><h2>Le tue build <span class="sp"></span><a class="link" href="#/build" style="font-size:12.5px">Tutte →</a></h2><div id="hsaved"></div></div>
         <div class="glass card"><h2>Leveling consigliato <span class="count">${esc(clsName(S.cls))}</span></h2><div class="mini" id="topl"><div class="skel" style="height:60px"></div></div></div>
         <div class="glass card"><h2>Ultima patch</h2><div id="lastp"><div class="skel" style="height:60px"></div></div></div>
@@ -206,6 +208,7 @@ PAGES.home = async main => {
     </div></div>`;
   renderDataStatus($('#dstat'));
   renderSaved($('#hsaved'), true);
+  patchForYou($('#hpatch'));
   try {
     const b = await getBuilds(S.season);
     const rob = b.rob?.tier || [];
@@ -314,7 +317,7 @@ async function renderSaved(el, compact) {
   if (!list.length) { el.innerHTML = compact ? '<div class="muted">Nessuna build salvata: usa la stella ☆ su una build.</div>' : ''; return; }
   const rows = await savedWithUpdates();
   const n = rows.filter(r => r.changed).length;
-  el.innerHTML = `${compact ? '' : `<div class="lbl" style="margin:0 2px 8px">Le tue build salvate · ${rows.length}${n ? ` · <span style="color:var(--acc2)">${n} aggiornate</span>` : ''}</div>`}<div class="${compact ? 'mini' : 'savedrow'}">${rows.map((r, i) => `<div class="${compact ? 'mrow' : 'sbuild glass'} ${r.changed ? 'chg' : ''}" data-i="${i}">${compact ? '' : `<span class="ci">${clsIcon(r.cls, 18)}</span>`}<div class="t"><b>${esc(r.title)}</b><small>${esc(r.src)} · ${esc(clsName(r.cls))} · S${r.season}${r.cur?.updated ? ` · ${r.changed ? '<span class="nw">aggiornata ' + dateLbl(r.cur.updated) + '</span>' : 'agg. ' + dateLbl(r.cur.updated)}` : ''}</small></div></div>`).join('')}</div>`;
+  el.innerHTML = `${compact ? '' : `<div class="lbl" style="margin:0 2px 8px">Le tue build salvate · ${rows.length}${n ? ` · <span style="color:var(--acc2)">${n} aggiornate</span>` : ''}</div>`}<div class="${compact ? 'mini' : 'savedrow'}">${rows.map((r, i) => `<div class="${compact ? 'mrow' : 'sbuild glass'} ${r.changed ? 'chg' : ''}" data-i="${i}">${compact ? '' : `<span class="ci">${clsIcon(r.cls, 18)}</span>`}<div class="t"><b>${esc(r.title)}</b><small>${esc(r.src)} · ${esc(clsName(r.cls))} · S${r.season}${r.cur?.updated ? ` · ${r.changed ? '<span class="nw">aggiornata ' + dateLbl(r.cur.updated) + '</span>' : 'agg. ' + dateLbl(r.cur.updated)}` : ''}${r.note ? `<br><i class="snote">${esc(r.note.length > 60 ? r.note.slice(0, 60) + '…' : r.note)}</i>` : ''}</small></div></div>`).join('')}</div>`;
   $$('[data-i]', el).forEach(d => d.onclick = () => { const r = rows[+d.dataset.i]; const b = r.cur || { src: r.src, title: r.title, cls: r.cls, type: r.type, url: r.url, profile: r.profile }; if (r.season !== S.season) { S.season = r.season; renderSeasonPick(); } setCls(r.cls); openBuildPage(b); });
 }
 
@@ -330,9 +333,9 @@ function openBuildPage(b) {
 PAGES.b = async main => {
   const ui = S.ui.build ||= { type: 'Endgame', src: 'all', variant: 0 };
   const url = decodeURIComponent(location.hash.replace(/^#\/b\//, ''));
-  let b = ui.cur?.url === url ? ui.cur : null;
-  try { const d = await getBuilds(S.season); ui.all = d.builds; if (!b) b = d.builds.find(x => x.url === url); } catch { }
-  if (!b) { const sv = savedOf(url); if (sv) b = { src: sv.src, title: sv.title, cls: sv.cls, type: sv.type, url: sv.url, profile: sv.profile }; }
+  let b = keyU(ui.cur?.url) === keyU(url) ? ui.cur : null;
+  for (const n of [S.season, ...(S.st.seasons || []).map(x => x.n)]) { if (b) break; try { const d = await getBuilds(n); if (n === S.season) ui.all = d.builds; b = d.builds.find(x => keyU(x.url) === keyU(url)); } catch { } }
+  if (!b) { const sv = savedList().find(x => keyU(x.url) === keyU(url)); if (sv) b = { src: sv.src, title: sv.title, cls: sv.cls, type: sv.type, url: sv.url, profile: sv.profile }; }
   if (!b) { location.hash = '#/build'; return; }
   if (ui.openUrl !== url) openBuildPage(b);
   ui.cur = b;
@@ -433,7 +436,7 @@ function viewFromPlanner(p, src) {
   });
   return { src, variants, notes: null, tr: {}, filters: p.filters || [], plannerId: p.id, plannerUrl: p.url };
 }
-function viewFromFull(f) { return { src: 'd4b', variants: f.variants || [], notes: f.notes, notesTitle: f.notesTitle, tr: f.tr || {}, head: f.head || {}, at: f.at }; }
+function viewFromFull(f) { (f.variants || []).forEach(v => { v.skills = (v.skills || []).filter(x => x && x.n && !/dropdown arrow/i.test(x.n) && !/\/UI\//.test(x.i || '')); }); return { src: 'd4b', variants: f.variants || [], notes: f.notes, notesTitle: f.notesTitle, tr: f.tr || {}, head: f.head || {}, at: f.at }; }
 function TN(view, en, it) { if (lang() === 'en') return en || it || ''; return it || view.tr[en] || en || ''; }
 function TSUB(view, en, it) { const main = TN(view, en, it); return main !== en && en ? en : ''; }
 function icoImg(u, cls, alt, fb) { return u ? `<img class="${cls || ''}" src="${esc(IMG(u))}" alt="${esc(alt || '')}" loading="lazy" ${fb ? `data-fb="${esc(IMG(fb))}"` : ''} onerror="if(this.dataset.fb&&this.src!==location.origin+this.dataset.fb&&!this.dataset.f){this.dataset.f=1;this.src=this.dataset.fb}else{this.style.visibility='hidden'}">` : ''; }
@@ -441,10 +444,12 @@ function icoImg(u, cls, alt, fb) { return u ? `<img class="${cls || ''}" src="${
 const BTABS = [['gear', 'Equipaggiamento e abilità', SA + 'UI/gear_skills.png'], ['tree', 'Albero abilità', SA + 'UI/skill_tree.png'], ['paragon', 'Paragon', SA + 'UI/paragon.png'], ['merc', 'Mercenari', SA + 'UI/characters_icon.png'], ['war', 'Piani di guerra', SA + 'UI/warplans.png'], ['notes', 'Note', SA + 'UI/notes.png']];
 
 async function showBuild(b) {
+  TIPS = [];
   const el = $('#bdet'), ui = S.ui.build;
-  const head = `<div class="bhead">${tierBadge(b.tier, b.cls)}<div style="flex:1;min-width:0"><h2 class="title">${esc(b.title)}</h2><div class="row wrap" style="gap:6px;margin-top:6px"><span class="badge src-${b.src}">${b.src}</span>${b.fromSeason ? `<span class="badge" title="La stagione ${S.season} non ha ancora build su ${b.src}">stagione ${b.fromSeason}</span>` : ''}<span class="badge ${/level/i.test(b.type) ? 'lv' : 'eg'}">${esc(b.type)}</span>${b.author ? `<span class="muted" style="font-size:12.5px">di ${esc(b.author)}</span>` : ''}${b.updated ? `<span class="muted" style="font-size:12.5px">· aggiornata ${dateLbl(b.updated)}</span>` : ''}</div></div><button class="btn bsave ${isSaved(b.url) ? 'on' : ''}" id="bsave">${IC.star} ${isSaved(b.url) ? 'Salvata' : 'Salva build'}</button><button class="btn" id="bopen">${IC.ext} Apri guida</button></div>
+  const head = `<div class="bhead">${tierBadge(b.tier, b.cls)}<div style="flex:1;min-width:0"><h2 class="title">${esc(b.title)}</h2><div class="row wrap" style="gap:6px;margin-top:6px"><span class="badge src-${b.src}">${b.src}</span>${b.fromSeason ? `<span class="badge" title="La stagione ${S.season} non ha ancora build su ${b.src}">stagione ${b.fromSeason}</span>` : ''}<span class="badge ${/level/i.test(b.type) ? 'lv' : 'eg'}">${esc(b.type)}</span>${b.author ? `<span class="muted" style="font-size:12.5px">di ${esc(b.author)}</span>` : ''}${b.updated ? `<span class="muted" style="font-size:12.5px">· aggiornata ${dateLbl(b.updated)}</span>` : ''}</div></div><button class="btn ghost" id="bcmp" title="Aggiungi al confronto">${cmpHas(b.url) ? '⇄ Nel confronto' : '⇄ Confronta'}</button><button class="btn bsave ${isSaved(b.url) ? 'on' : ''}" id="bsave">${IC.star} ${isSaved(b.url) ? 'Salvata' : 'Salva build'}</button><button class="btn" id="bopen">${IC.ext} Apri guida</button></div>
+    <div id="bnote"></div>
     ${b.tier || b.info ? `<div class="robinfo"><b>Rob2628:</b> ${b.tier ? `tier ${esc(b.tier)}${b.tierNote ? ' (' + esc(b.tierNote) + ')' : ''}` : ''}${b.info ? ' · ' + esc(b.info) : ''}</div>` : ''}`;
-  const bindOpen = () => { const o = $('#bopen'); if (o) o.onclick = () => openGuide(b.url); const sb = $('#bsave'); if (sb) sb.onclick = () => { toggleSave(b); sb.classList.toggle('on', isSaved(b.url)); sb.innerHTML = `${IC.star} ${isSaved(b.url) ? 'Salvata' : 'Salva build'}`; }; };
+  const bindOpen = () => { const o = $('#bopen'); if (o) o.onclick = () => openGuide(b.url); const cb = $('#bcmp'); if (cb) cb.onclick = () => { cmpToggle(b); cb.textContent = cmpHas(b.url) ? '⇄ Nel confronto' : '⇄ Confronta'; }; bindNote(b); const sb = $('#bsave'); if (sb) sb.onclick = () => { toggleSave(b); sb.classList.toggle('on', isSaved(b.url)); sb.innerHTML = `${IC.star} ${isSaved(b.url) ? 'Salvata' : 'Salva build'}`; setTimeout(() => bindNote(b), 50); }; };
   el.innerHTML = head + `<div class="skel" style="height:420px;margin-top:16px"></div>`;
   bindOpen();
   const token = (ui._tok = (ui._tok || 0) + 1);
@@ -463,6 +468,7 @@ async function showBuild(b) {
     }
   } catch (e) { note = 'Dettagli non disponibili: ' + esc(e.message); }
   if (token !== ui._tok) return;
+  ui.view = view;
   if (!view || !view.variants.length) {
     el.innerHTML = head + `<div class="empty" style="padding:30px">${IC.doc}<span>${note || 'Dettagli non disponibili.'}<br>“Apri guida” la apre in una finestra di Hellrise.</span></div>`;
     bindOpen();
@@ -494,7 +500,11 @@ async function showBuild(b) {
   const drawTab = () => {
     const box = $('#btab');
     if (ui.btab === 'tree') { box.innerHTML = treeView(view, v.tree, 'skill'); bindViewer(box); return; }
-    if (ui.btab === 'paragon') { box.innerHTML = v.paragon ? paragonView(view, v.paragon) : mxParagonHTML(v); if (v.paragon) bindViewer(box); else bindMxParagon(box, view, v, b); return; }
+    if (ui.btab === 'paragon') {
+      box.innerHTML = v.paragon ? `<div class="row" style="margin-bottom:10px"><span class="sp"></span><button class="btn" id="toov">Paragon nell'overlay in gioco</button></div>` + paragonView(view, v.paragon) : mxParagonHTML(v);
+      if (v.paragon) { bindViewer(box); $('#toov', box).onclick = () => paragonToOverlay('d4b:' + keyU(b.url) + '/', b.title, ui.variant || 0); } else bindMxParagon(box, view, v, b);
+      return;
+    }
     if (ui.btab === 'merc') { box.innerHTML = mercView(view, v.merc); return; }
     if (ui.btab === 'war') { box.innerHTML = warView(view, v.war); $$('.wtabs button', box).forEach(x => x.onclick = () => { ui.war = +x.dataset.w; drawTab(); }); bindViewer(box); return; }
     if (ui.btab === 'notes') { box.innerHTML = `<div class="bnotes">${notesHTML(view, view.notes)}</div>`; return; }
@@ -502,6 +512,7 @@ async function showBuild(b) {
     $$('[data-f]', box).forEach(x => x.onclick = () => copy(view.filters[+x.dataset.f].code, 'Codice del filtro'));
     $('#mkmacro')?.addEventListener('click', () => { S.ui.macroDraft = draftFromBuild(b, { variants: [{ skills: v.skills.map(s => ({ name: TN(view, s.n, s.it), en: s.n })) }] }, { skills: v.skills.map(s => ({ name: TN(view, s.n, s.it), en: s.n })) }); location.hash = '#/macro'; });
     $('#planner')?.addEventListener('click', () => openGuide(view.plannerUrl));
+    bindGearExtras(box, view, v, b, drawTab);
   };
   drawTab();
 }
@@ -518,13 +529,14 @@ function gearView(view, v, b) {
   const slotHTML = (x, side) => {
     const empty = /^empty$/i.test(x.slot) || !x.n;
     const kind = /aspect/i.test(x.n || '') ? 'legendary' : (view.src === 'd4b' && x.k === 'mythic' && !view.tr['~m:' + x.n] ? 'unique' : (view.src === 'd4b' && !x.k ? 'legendary' : KINDCLS(x.k)));
-    return `<div class="gslot ${side} ${empty ? 'empty' : ''}"><div class="gico k-${kind}">${icoImg(x.i, 'gimg', x.n, x.fb || slotIcon(x.slot))}${x.gems?.length ? `<div class="ggems">${x.gems.map(gm => `<span title="${esc(TN(view, gm.n, gm.it))}">${gm.i ? icoImg(gm.i, '', gm.n) : `<i>${esc((TN(view, gm.n, gm.it) || '?').slice(0, 2))}</i>`}</span>`).join('')}</div>` : ''}</div><div class="gtx"><b class="k-${kind}">${esc(empty ? 'Vuoto' : TN(view, x.n, x.it))}</b><small>${esc(TN(view, x.slot, x.slotIt))}</small>${x.asp ? `<small class="asp">${esc(TN(view, x.asp.n, x.asp.it))}</small>` : ''}</div></div>`;
+    const own = !empty && ownedOf(b.url).includes(x.slot);
+    return `<div class="gslot ${side} ${empty ? 'empty' : ''} ${own ? 'have' : ''}" ${!empty ? `data-tip="${regTip({ kind: 'gear', x, view })}"` : ''}>${!empty ? `<button class="own ${own ? 'on' : ''}" data-own="${esc(x.slot)}" title="${own ? 'Ce l\'hai già' : 'Segna come già trovato'}">✓</button>` : ''}<div class="gico k-${kind}">${icoImg(x.i, 'gimg', x.n, x.fb || slotIcon(x.slot))}${x.gems?.length ? `<div class="ggems">${x.gems.map(gm => `<span title="${esc(TN(view, gm.n, gm.it))}">${gm.i ? icoImg(gm.i, '', gm.n) : `<i>${esc((TN(view, gm.n, gm.it) || '?').slice(0, 2))}</i>`}</span>`).join('')}</div>` : ''}</div><div class="gtx"><b class="k-${kind}">${esc(empty ? 'Vuoto' : TN(view, x.n, x.it))}</b><small>${esc(TN(view, x.slot, x.slotIt))}</small>${x.asp ? `<small class="asp">${esc(TN(view, x.asp.n, x.asp.it))}</small>` : ''}</div></div>`;
   };
   const POSA = { 'top-left': -120, 'top-right': -60, 'mid-right': 0, 'bottom-right': 60, 'bottom-left': 120, 'mid-left': 180 };
   const charms = v.charms || [];
   const useCharms = charms.length || v.seal;
   const ring = useCharms ? charms.slice(0, 6) : (v.skills || []).slice(0, 8);
-  const ringHTML = ring.map((p, i) => { const deg = useCharms ? (POSA[p.pos] ?? (i * 60 - 120)) : (i / ring.length) * 360 - 90; const a = deg * Math.PI / 180, r = 38; const my = p.tip?.my || /mythic/i.test(p.i || ''); return `<div class="rnode ${useCharms ? 'ch' : ''} ${my ? 'my' : ''}" style="left:${50 + r * Math.cos(a)}%;top:${50 + r * Math.sin(a)}%" title="${esc(TN(view, p.n, p.it))}${p.tip?.vals?.length ? ' · ' + esc(p.tip.vals.map(x => x.t).join(', ')) : ''}">${p.i ? icoImg(p.i, '', p.n) : `<i>${esc(TN(view, p.n, p.it).slice(0, 14))}</i>`}</div>`; }).join('')
+  const ringHTML = ring.map((p, i) => { const deg = useCharms ? (POSA[p.pos] ?? (i * 60 - 120)) : (i / ring.length) * 360 - 90; const a = deg * Math.PI / 180, r = 38; const my = p.tip?.my || /mythic/i.test(p.i || ''); return `<div class="rnode ${useCharms ? 'ch' : ''} ${my ? 'my' : ''}" ${useCharms && p.tip ? `data-tip="${regTip({ kind: 'charm', x: p, view })}"` : ''} style="left:${50 + r * Math.cos(a)}%;top:${50 + r * Math.sin(a)}%" title="${esc(TN(view, p.n, p.it))}${p.tip?.vals?.length ? ' · ' + esc(p.tip.vals.map(x => x.t).join(', ')) : ''}">${p.i ? icoImg(p.i, '', p.n) : `<i>${esc(TN(view, p.n, p.it).slice(0, 14))}</i>`}</div>`; }).join('')
     + (useCharms && v.seal ? `<div class="rnode seal ${v.seal.tip?.my ? 'my' : ''}" style="left:50%;top:50%" title="${esc(TN(view, v.seal.tip?.n || v.seal.n, v.seal.it))}">${v.seal.i ? icoImg(v.seal.i, '', v.seal.n) : `<i>${esc(TN(view, v.seal.n, v.seal.it))}</i>`}</div>` : '');
   const ringLabel = useCharms ? (v.seal ? '' : '<span>Talismani</span>') : '<span>Abilità</span>';
   const chip = (x, extraCls) => `<div class="chipi ${extraCls || ''}" title="${esc(TSUB(view, x.n, x.it))}">${x.i ? icoImg(x.i, '', x.n) : ''}<span>${esc(TN(view, x.n, x.it))}</span></div>`;
@@ -544,6 +556,9 @@ function gearView(view, v, b) {
     ${v.extra?.length && !v.extra[0].items ? sec('Altro', `<div class="chips">${v.extra.map(x => chip(x)).join('')}</div>`) : ''}
     ${v.stats?.length ? sec('Priorità delle statistiche', `<div class="bstats">${v.stats.map(st => `<div class="bstat"><div class="h">${icoImg(st.i, '', st.slot)}<b>${esc(TN(view, st.slot, ''))}</b></div><ol>${st.list.map(x => `<li class="${x.tf ? 'tf' : ''}">${x.ga ? '<i class="ga" title="Affisso superiore">★</i>' : ''}${x.tp ? '<i class="tp" title="Tempra">⚒</i>' : ''}${x.tf ? '<i class="tfi" title="Trasfigurazione">✦</i>' : ''}<span>${esc(x.t)}</span></li>`).join('')}</ol></div>`).join('')}</div>`) : ''}
     ${view.filters?.length ? sec('Filtri loot · da importare in gioco', `<div class="grid" style="gap:8px">${view.filters.map((f, i) => `<div class="filter"><b>${esc(f.name)}</b><button class="btn sm" data-f="${i}">${IC.copy} Copia codice</button></div>`).join('')}</div>`) : ''}
+    ${rotationHTML(view, v)}
+    ${farmHTML(view, v, b)}
+    ${lootFilterHTML(view, v)}
     <div class="row" style="margin-top:20px;gap:8px;flex-wrap:wrap">${v.skills?.length ? `<button class="btn pri" id="mkmacro">${IC.keyb} Suggerisci profilo macro</button>` : ''}${view.plannerId ? `<button class="btn ghost" id="planner">${IC.ext} Planner Maxroll</button>` : ''}</div>`;
 }
 
@@ -636,7 +651,7 @@ function bindMxParagon(box, view, v, b) {
   const drawSteps = () => { const st = v.mxParagon[ui.pstep || 0]; $('#pboards', box).innerHTML = st.boards.map((bd, i) => boardCard(bd, i)).join(''); $$('#pboards canvas', box).forEach((c, i) => drawBoard(c, st.boards[i])); };
   drawSteps();
   $$('#pstep button', box).forEach(x => x.onclick = () => { ui.pstep = +x.dataset.s; $$('#pstep button', box).forEach(y => y.classList.toggle('on', y === x)); drawSteps(); });
-  $('#toov', box).onclick = async () => { const o = { ...(S.st.settings.overlay || {}), planner: view.plannerId, title: b.title, variant: ui.variant, step: ui.pstep || 0, board: 0, enabled: true, paragon: { ...(S.st.settings.overlay?.paragon || {}), on: true } }; try { S.st.settings = await post('/api/settings', { overlay: o }); toast('Paragon impostato nell\'overlay'); } catch (e) { toast(e.message); } };
+  $('#toov', box).onclick = () => paragonToOverlay(view.plannerId, b.title, ui.variant, ui.pstep || 0);
 }
 const MERCL = { Mercenary: 'Mercenario', Reinforcement: 'Rinforzo', Skill: 'Abilità', Opportunity: 'Opportunità' };
 function mercView(view, m) {
@@ -652,6 +667,221 @@ function warView(view, war) {
   if (!list[ui.war || 0]) ui.war = 0;
   const w = list[ui.war || 0];
   return `<div class="wtabs seg">${list.map((x, i) => `<button data-w="${i}" class="${i === (ui.war || 0) ? 'on' : ''}">${icoImg(x.i, 'ti', x.n)}${esc(lang() === 'en' ? x.n : (WARIT[x.n] || x.n))}</button>`).join('')}</div>${treeView(view, w.tree, 'war')}`;
+}
+
+// ---------------------------------------------------------------- extra della scheda build
+// finestrelle col dettaglio (come su D4Builds) al passaggio del mouse
+let TIPS = [];
+function regTip(t) { TIPS.push(t); return TIPS.length - 1; }
+function tipHTML(t) {
+  const { x, view } = t, p = x.tip || {};
+  if (t.kind === 'charm') {
+    return `<div class="th"><b class="${p.my ? 'k-mythic' : 'tl'}">${esc(TN(view, p.n || x.n, x.it))}</b><small>${p.set?.n ? esc(p.set.n) : (p.my ? 'Talismano mitico' : 'Talismano')}</small></div>${(p.vals || []).map(v => `<div class="tv">${v.b ? `<em>${esc(v.b)}:</em> ` : ''}${esc(v.t)}</div>`).join('')}${(p.eff || []).map(e => `<p>${esc(e)}</p>`).join('')}`;
+  }
+  const kind = /aspect/i.test(x.n || '') ? 'legendary' : (p.sub && /mythic/i.test(p.sub) ? 'mythic' : 'unique');
+  return `<div class="th"><b class="k-${kind}">${esc(TN(view, x.n, x.it))}</b><small>${esc(p.sub || TN(view, x.slot, x.slotIt))}</small></div>
+    ${p.desc ? `<p>${esc(p.desc)}</p>` : ''}
+    ${(p.stats || []).length ? `<div class="tsec">${p.stats.map(s => `<div class="tv">${s.ga ? '<i class="ga">★</i> ' : '• '}${esc(s.t)}</div>`).join('')}</div>` : ''}
+    ${(p.temper || []).length ? `<div class="tsec">${p.temper.map(s => `<div class="tv tp">⚒ ${esc(s)}</div>`).join('')}</div>` : ''}
+    ${(p.eff || []).map(e => `<p class="eff">${esc(e)}</p>`).join('')}
+    ${(p.hor || []).map(e => `<div class="tv hor">${esc(e)}</div>`).join('')}
+    ${p.drop ? `<div class="tdrop">Cade da: <b>${esc(p.drop)}</b></div>` : ''}
+    ${!x.tip && view.src === 'd4b' ? `<div class="muted" style="font-size:11.5px;margin-top:6px">Dettagli in arrivo col prossimo aggiornamento dei dati.</div>` : ''}${x.asp ? `<div class="tv">${esc(TN(view, x.asp.n, x.asp.it))}</div>` : ''}`;
+}
+(function tipEvents() {
+  let box;
+  document.addEventListener('mouseover', e => {
+    const el = e.target.closest?.('[data-tip]');
+    if (!el || e.target.closest('.own')) { if (box) box.style.display = 'none'; return; }
+    const t = TIPS[+el.dataset.tip]; if (!t) return;
+    if (!box) { box = document.createElement('div'); box.className = 'tipbox glass'; document.body.appendChild(box); }
+    box.innerHTML = tipHTML(t); box.style.display = 'block';
+    const r = el.getBoundingClientRect(), bw = box.offsetWidth, bh = box.offsetHeight;
+    let x = r.right + 10, y = r.top;
+    if (x + bw > innerWidth - 8) x = r.left - bw - 10;
+    if (x < 8) x = 8;
+    if (y + bh > innerHeight - 8) y = innerHeight - bh - 8;
+    box.style.left = x + 'px'; box.style.top = Math.max(8, y) + 'px';
+  });
+  document.addEventListener('scroll', () => { if (box) box.style.display = 'none'; }, true);
+})();
+
+// pezzi che hai già (salvati con la build)
+const ownedOf = url => savedOf(url)?.owned || [];
+function toggleOwned(b, slot) {
+  if (!isSaved(b.url)) toggleSave(b);
+  const cur = ownedOf(b.url);
+  touchSaved(b.url, { owned: cur.includes(slot) ? cur.filter(x => x !== slot) : [...cur, slot] });
+}
+
+// rotazione presa dalle note della build (D4Builds) o, se manca, dalla barra delle abilità
+function rotationLines(view, v) {
+  const out = [];
+  const notes = view.notes || [];
+  let on = false;
+  for (const line of notes) {
+    const head = Array.isArray(line) && line.length === 1 && line[0]?.b ? line[0].b : null;
+    if (head) { if (on) break; on = /rotation|rotazione/i.test(head); continue; }
+    if (!on || !Array.isArray(line)) continue;
+    const txt = line.map(x => typeof x === 'string' ? x : (x.b || TN(view, x.n, ''))).join('').replace(/^\s*[-•]\s*/, '').trim();
+    if (txt) out.push(txt);
+  }
+  if (out.length) return { lines: out.slice(0, 12), from: 'note' };
+  const keys = ['LMB', 'RMB', '1', '2', '3', '4'];
+  return { lines: (v.skills || []).slice(0, 6).map((s, i) => `${keys[i]}: ${TN(view, s.n, s.it)}`), from: 'barra' };
+}
+function rotationHTML(view, v) {
+  const r = rotationLines(view, v);
+  if (!r.lines.length) return '';
+  return `<div class="bsec"><div class="row"><div class="lbl">Rotazione${r.from === 'barra' ? ' · dalla barra delle abilità' : ''}</div><span class="sp"></span><button class="btn sm" id="rotov">Rotazione nell'overlay</button></div><ol class="rotlist">${r.lines.map(l => `<li>${esc(l)}</li>`).join('')}</ol></div>`;
+}
+
+// cosa manca e dove farmarlo
+function farmHTML(view, v, b) {
+  const own = ownedOf(b.url);
+  const miss = (v.gear || []).filter(x => x.n && !/^empty$/i.test(x.slot) && !own.includes(x.slot));
+  const have = (v.gear || []).filter(x => own.includes(x.slot)).length;
+  const rows = miss.map(x => {
+    const asp = /aspect/i.test(x.n);
+    let where = asp ? 'Aspetto: dal Codex del Potere (sotterranei) o da estrarre da un leggendario' : (x.tip?.drop ? x.tip.drop : '');
+    if (!asp && !where) { const it = (S.lootIdx || {})[norm(x.n)]; if (it) where = [...new Set(it.sources.map(s => S.lootBoss?.[s.boss]?.name).filter(Boolean))].slice(0, 3).join(' · '); }
+    return `<div class="frow"><span class="fslot">${esc(TN(view, x.slot, x.slotIt))}</span><b class="${asp ? 'k-legendary' : 'k-unique'}">${esc(TN(view, x.n, x.it))}</b><small>${esc(where || (asp ? '' : 'drop casuale (qualsiasi attività di fine gioco)'))}</small></div>`;
+  }).join('');
+  return `<div class="bsec"><div class="lbl">Cosa ti manca · ${have}/${(v.gear || []).filter(x => x.n && !/^empty$/i.test(x.slot)).length} pezzi trovati</div><div class="muted" style="font-size:12px;margin-bottom:8px">Segna con ✓ sull'icona i pezzi che hai già: qui restano quelli da farmare, con dove cercarli.</div>${rows ? `<div class="flist">${rows}</div>` : '<div class="muted">Hai tutto! 🎉</div>'}</div>`;
+}
+async function loadLootIdx() {
+  if (S.lootIdx) return;
+  try { const L = await getLoot(S.season); S.lootIdx = {}; (L.items || []).forEach(it => { S.lootIdx[norm(it.en)] = it; S.lootIdx[norm(it.name)] = it; }); S.lootBoss = Object.fromEntries((L.bosses || []).map(x => [x.id, x])); } catch { }
+}
+
+// filtro loot del gioco creato dalla build
+function lootFilterHTML(view, v) {
+  return `<div class="bsec"><div class="lbl">Filtro loot del gioco</div><div class="lfbox glass">
+    <div class="muted" style="font-size:12.5px;line-height:1.5">Crea un filtro da importare in Diablo IV (Opzioni › Gameplay › Filtro bottino › Nuovo filtro › Importa): mette in risalto mitici, unici della build, i talismani dei set e i pezzi con gli affissi giusti per ogni slot.</div>
+    <div class="row wrap" style="gap:12px;margin-top:10px"><label class="field" style="flex-direction:row;align-items:center;gap:8px"><span>Affissi giusti richiesti</span><select class="inp" id="lfmin"><option value="2">almeno 2</option><option value="3" selected>almeno 3</option><option value="4">almeno 4</option></select></label><label class="tog"><input type="checkbox" id="lfhide"><i></i><span><b>Nascondi il resto dell'equipaggiamento</b></span></label><span class="sp"></span><button class="btn pri" id="lfmake">Crea filtro</button></div>
+    <div id="lfout"></div></div></div>`;
+}
+function lootReq(view, v, b) {
+  const uniques = [], sets = new Set();
+  (v.gear || []).forEach(x => { if (x.n && !/aspect/i.test(x.n) && !/^empty$/i.test(x.slot)) uniques.push(x.n); });
+  (v.charms || []).forEach(c => { if (c.tip?.set?.n) sets.add(c.tip.set.n); else if (c.tip?.my || /mythic|unique/i.test(c.i || '')) uniques.push(c.n); });
+  const slots = (v.stats || []).map(st => ({ slot: st.slot, stats: st.list.filter(x => !x.tf && !/^weapon type$/i.test(x.t)).map(x => x.t) }));
+  return { name: b.title, uniques, sets: [...sets], slots, minAffix: +($('#lfmin')?.value || 3), hide: !!$('#lfhide')?.checked };
+}
+
+function bindGearExtras(box, view, v, b, redraw) {
+  $$('.own', box).forEach(el => el.onclick = ev => { ev.stopPropagation(); toggleOwned(b, el.dataset.own); setTimeout(redraw, 50); });
+  $('#rotov', box)?.addEventListener('click', async () => {
+    const r = rotationLines(view, v);
+    const o = { ...(S.st.settings.overlay || {}), rotation: { ...(S.st.settings.overlay?.rotation || {}), on: true }, rotTitle: b.title, rotLines: r.lines, enabled: true };
+    try { S.st.settings = await post('/api/settings', { overlay: o }); toast('Rotazione impostata nell\'overlay'); } catch (e) { toast(e.message); }
+  });
+  $('#lfmake', box)?.addEventListener('click', async () => {
+    const out = $('#lfout', box);
+    out.innerHTML = '<div class="skel" style="height:60px;margin-top:10px"></div>';
+    try {
+      const r = await post('/api/lootfilter', lootReq(view, v, b));
+      out.innerHTML = `<div class="lfres"><div class="row"><b>Filtro pronto · ${r.rules.length} regole</b><span class="sp"></span><button class="btn sm pri" id="lfcopy">${IC.copy} Copia codice</button></div><div class="chips" style="margin:8px 0">${r.rules.map(x => `<span class="badge">${esc(x)}</span>`).join('')}</div><textarea class="inp lfcode" readonly>${esc(r.code)}</textarea>${r.missing?.length ? `<div class="muted" style="font-size:11.5px;margin-top:6px">Non messe nel filtro (il gioco non le riconosce come affissi): ${esc(r.missing.join(', '))}</div>` : ''}${!(v.stats || []).length ? `<div class="muted" style="font-size:11.5px;margin-top:6px">Questa fonte non indica gli affissi per slot: il filtro mette in risalto solo mitici, unici e set.</div>` : ''}</div>`;
+      $('#lfcopy', out).onclick = () => copy(r.code, 'Codice del filtro');
+    } catch (e) { out.innerHTML = `<div class="muted" style="margin-top:8px">${esc(e.message)}</div>`; }
+  });
+  if (!S.lootIdx) loadLootIdx().then(() => { if ($('.flist', box)) redraw(); });
+}
+
+async function paragonToOverlay(planner, title, variant, step) {
+  const o = { ...(S.st.settings.overlay || {}), planner, title, variant: variant || 0, step: step || 0, board: 0, enabled: true, paragon: { ...(S.st.settings.overlay?.paragon || {}), on: true } };
+  try { S.st.settings = await post('/api/settings', { overlay: o }); toast('Paragon impostato nell\'overlay'); } catch (e) { toast(e.message); }
+}
+
+// note personali sulle build salvate
+function bindNote(b) {
+  const el = $('#bnote'); if (!el) return;
+  const sv = savedOf(b.url);
+  if (!sv) { el.innerHTML = ''; return; }
+  el.innerHTML = `<textarea class="inp bnote" placeholder="Le tue note su questa build (es. “manca il Tuskhelm, uso Writhing al posto”)">${esc(sv.note || '')}</textarea>`;
+  const ta = $('textarea', el);
+  ta.oninput = () => touchSaved(b.url, { note: ta.value });
+}
+
+// ---------------------------------------------------------------- confronto tra due build
+const cmpList = () => { try { return JSON.parse(localStorage.getItem('hr.cmp') || '[]'); } catch { return []; } };
+const cmpHas = url => cmpList().some(x => x.url === url);
+function cmpToggle(b) {
+  let l = cmpList();
+  if (cmpHas(b.url)) l = l.filter(x => x.url !== b.url);
+  else { l.push({ url: b.url, src: b.src, title: b.title, cls: b.cls, type: b.type, profile: b.profile || '', season: b.fromSeason || S.season }); if (l.length > 2) l = l.slice(-2); }
+  localStorage.setItem('hr.cmp', JSON.stringify(l));
+  cmpBar();
+  toast(l.length === 2 ? 'Pronte per il confronto' : (cmpHas(b.url) ? 'Aggiunta al confronto: scegline un\'altra' : 'Tolta dal confronto'));
+}
+function cmpBar() {
+  let el = $('#cmpbar'); const l = cmpList();
+  if (!l.length || S.page === 'cmp') { el?.remove(); return; }
+  if (!el) { el = document.createElement('div'); el.id = 'cmpbar'; el.className = 'glass'; document.body.appendChild(el); }
+  el.innerHTML = `<span>⇄ <b>${l.map(x => esc(x.title)).join(' · ')}</b>${l.length < 2 ? ' <span class="muted">· scegli un\'altra build</span>' : ''}</span>${l.length === 2 ? '<button class="btn pri sm" id="cmpgo">Confronta</button>' : ''}<button class="btn sm ghost" id="cmpx">✕</button>`;
+  $('#cmpgo', el)?.addEventListener('click', () => { location.hash = '#/cmp'; });
+  $('#cmpx', el).onclick = () => { localStorage.removeItem('hr.cmp'); cmpBar(); };
+}
+async function loadView(b) {
+  if (b.profile) return viewFromPlanner(await getPlanner(b.profile), 'maxroll');
+  if (b.src === 'D4Builds') { try { return viewFromFull(await api('/api/d4bfull?u=' + encodeURIComponent(b.url))); } catch { return viewFromPlanner(await api('/api/d4bbuild?u=' + encodeURIComponent(b.url)), 'd4b'); } }
+  return viewFromPlanner(await api('/api/mobabuild?u=' + encodeURIComponent(b.url)), 'moba');
+}
+const pickVariant = (view, b) => { if (!/level/i.test(b.type)) { const i = view.variants.findIndex(v => /endgame/i.test(v.name || '')); if (i >= 0) return view.variants[i]; const j = view.variants.findIndex(v => !/level/i.test(v.name || '')); if (j >= 0) return view.variants[j]; } return view.variants[0]; };
+const slotNorm = s => { s = String(s || '').toLowerCase(); if (/^ring/.test(s)) return s.replace(/\s*\d$/, '') + (/(2)$/.test(s) ? ' 2' : ' 1'); if (isWeapon(s)) return 'weapon'; return s; };
+PAGES.cmp = async main => {
+  const l = cmpList();
+  cmpBar();
+  main.innerHTML = `<div class="page"><div class="row" style="gap:8px;margin-bottom:12px"><button class="btn" id="cback">← Torna alle build</button><h1 class="pt" style="margin:0 0 0 6px;font-size:24px">Confronto</h1></div><div id="cbody"><div class="skel" style="height:400px"></div></div></div>`;
+  $('#cback').onclick = () => history.length > 1 ? history.back() : (location.hash = '#/build');
+  if (l.length < 2) { $('#cbody').innerHTML = `<div class="glass empty">${IC.search}<span>Scegli due build con “⇄ Confronta” nella pagina di una build.</span></div>`; return; }
+  let A, B;
+  try { [A, B] = await Promise.all(l.map(loadView)); } catch (e) { $('#cbody').innerHTML = noData(e.message); return; }
+  const va = pickVariant(A, l[0]), vb = pickVariant(B, l[1]);
+  const by = v => { const m = {}; let w = 0; (v.gear || []).forEach(g => { if (!g.n || /^empty$/i.test(g.slot)) return; let k = slotNorm(g.slot); if (k === 'weapon') k = 'weapon ' + (++w); if (k === 'ring 1' && m[k]) k = 'ring 2'; if (m[k]) k += '+'; m[k] = g; }); return m; };
+  const ga = by(va), gb = by(vb);
+  const order = ['helm', 'chest armor', 'gloves', 'pants', 'boots', 'amulet', 'ring 1', 'ring 2', 'weapon 1', 'weapon 2', 'weapon 3', 'weapon 4', 'offhand'];
+  const keys = [...new Set([...order.filter(k => ga[k] || gb[k]), ...Object.keys(ga), ...Object.keys(gb)])];
+  const cell = (view, g) => g ? `<div class="ccell">${icoImg(g.i, 'ci', g.n, g.fb || slotIcon(g.slot))}<b>${esc(TN(view, g.n, g.it))}</b></div>` : '<span class="muted">—</span>';
+  const same = (x, y) => x && y && norm(x.n) === norm(y.n);
+  const listCmp = (title, xa, xb) => { const na = new Set(xa.map(x => norm(x.n))), nb = new Set(xb.map(x => norm(x.n))); return `<tr class="sub"><td colspan="3">${title}</td></tr><tr><td></td><td>${xa.map(x => `<span class="badge ${nb.has(norm(x.n)) ? '' : 'diff'}">${esc(TN(A, x.n, x.it))}</span>`).join(' ') || '—'}</td><td>${xb.map(x => `<span class="badge ${na.has(norm(x.n)) ? '' : 'diff'}">${esc(TN(B, x.n, x.it))}</span>`).join(' ') || '—'}</td></tr>`; };
+  const shared = keys.filter(k => same(ga[k], gb[k])).length;
+  $('#cbody').innerHTML = `<div class="glass card"><div class="muted" style="margin-bottom:10px">${shared} pezzi su ${keys.length} uguali · le differenze sono evidenziate</div><table class="ctable"><thead><tr><th></th><th>${clsIcon(l[0].cls, 16)} ${esc(l[0].title)}<small>${esc(l[0].src)} · ${esc(va.name || '')}</small></th><th>${clsIcon(l[1].cls, 16)} ${esc(l[1].title)}<small>${esc(l[1].src)} · ${esc(vb.name || '')}</small></th></tr></thead><tbody>
+    <tr class="sub"><td colspan="3">Equipaggiamento</td></tr>
+    ${keys.map(k => `<tr class="${same(ga[k], gb[k]) ? '' : 'diff'}"><td class="sl">${esc(TN(A, (ga[k] || gb[k]).slot, (ga[k] || gb[k]).slotIt))}</td><td>${cell(A, ga[k])}</td><td>${cell(B, gb[k])}</td></tr>`).join('')}
+    ${listCmp('Abilità', va.skills || [], vb.skills || [])}
+    ${listCmp('Talismani e sigillo', [...(va.seal ? [va.seal] : []), ...(va.charms || [])], [...(vb.seal ? [vb.seal] : []), ...(vb.charms || [])])}
+    ${listCmp('Rune', va.runes || [], vb.runes || [])}
+  </tbody></table></div>`;
+};
+
+// ---------------------------------------------------------------- patch: novità per le tue build
+async function patchForYou(el) {
+  if (!el) return;
+  const saved = savedList();
+  const classes = [...new Set([...saved.map(x => x.cls), S.cls])];
+  const names = new Set();
+  for (const sv of saved.slice(0, 6)) {
+    try { const b = { ...sv, profile: sv.profile }; const view = await loadView(b); const v = view.variants[sv.variant] || pickVariant(view, b); (v.skills || []).forEach(x => names.add(x.n)); (v.gear || []).forEach(x => x.n && !/^empty$/i.test(x.slot) && names.add(x.n)); } catch { }
+  }
+  let p; try { p = await api('/api/patches'); } catch { el.innerHTML = '<div class="muted">Note delle patch non disponibili.</div>'; return; }
+  const a = p.articles?.[0], x = a?.patches?.[0];
+  if (!x) { el.innerHTML = '<div class="muted">Nessuna patch.</div>'; return; }
+  const doc = new DOMParser().parseFromString(x.html || '', 'text/html');
+  const clsWords = { barbarian: 'Barbarian', druid: 'Druid', necromancer: 'Necromancer', rogue: 'Rogue', sorcerer: 'Sorcerer', spiritborn: 'Spiritborn', paladin: 'Paladin', warlock: 'Warlock' };
+  const hits = [];
+  let h3 = '', h4 = '';
+  doc.body.querySelectorAll('h2,h3,h4,li').forEach(n => {
+    if (n.tagName === 'H2') { h3 = ''; h4 = ''; return; }
+    if (n.tagName === 'H3') { h3 = n.textContent.trim(); h4 = ''; return; }
+    if (n.tagName === 'H4') { h4 = n.textContent.trim(); return; }
+    if (n.querySelector('li')) return;
+    const t = n.textContent.trim();
+    const byName = [...names].find(nm => nm.length > 3 && t.toLowerCase().includes(nm.toLowerCase()));
+    const byCls = classes.find(c => new RegExp('\\b' + clsWords[c] + '\\b', 'i').test(h3));
+    if (byName || byCls) hits.push({ t, why: byName ? TN({ tr: {} }, byName, '') : clsName(byCls) + (h4 ? ' · ' + h4 : '') });
+  });
+  el.innerHTML = hits.length ? `<div class="muted" style="font-size:12px;margin-bottom:6px">${esc(x.version || '')} · ${hits.length} modifiche che toccano le tue classi e build</div><div class="pfy">${hits.slice(0, 12).map(h => `<div class="pfyi"><span class="badge">${esc(h.why)}</span><span>${esc(h.t.length > 220 ? h.t.slice(0, 220) + '…' : h.t)}</span></div>`).join('')}</div>${hits.length > 12 ? `<a class="link" href="#/patch" style="font-size:12.5px">…e altre ${hits.length - 12} nella pagina Patch →</a>` : ''}` : `<div class="muted">L'ultima patch (${esc(x.version || '')}) non tocca le tue classi o le build salvate.</div>`;
 }
 
 // ---------------------------------------------------------------- paragon
@@ -930,6 +1160,11 @@ PAGES.overlay = async main => {
         ${tg('timers.on', 'Mostra i timer')}
         ${tg('tBoss', 'Boss del mondo')}${tg('tHelltide', 'Marea infernale')}${tg('tLegion', 'Legione')}
       </div>
+      <div class="glass card"><h2>Rotazione delle abilità</h2>
+        ${tg('rotation.on', 'Mostra la rotazione', o.rotLines?.length ? esc(o.rotTitle || '') + ' · ' + o.rotLines.length + ' passaggi' : 'Scegli una build e premi “Rotazione nell\'overlay”')}
+        ${tg('rotation.lock', 'Riquadro rotazione bloccato')}
+        ${o.rotLines?.length ? `<ol class="rotlist">${o.rotLines.map(l => `<li>${esc(l)}</li>`).join('')}</ol>` : ''}
+      </div>
       <div class="glass card" style="grid-column:1/-1"><h2>Guida paragon</h2>
         ${tg('paragon.on', 'Mostra il paragon', 'Tavole nell\'ordine della build con le caselle da prendere')}
         <div class="row wrap" style="gap:14px;align-items:flex-start;margin:4px 0 10px">
@@ -948,9 +1183,9 @@ PAGES.overlay = async main => {
     inp.onchange = () => save({ [inp.dataset.o]: inp.checked });
   });
   const box = $('#ovpar');
-  if (!o.planner) { box.innerHTML = `<div class="muted" style="margin-top:6px">Nessuna build scelta. Apri una build Maxroll in <a class="link" href="#/build">Build</a> e premi “Paragon nell'overlay in gioco”.</div>`; return; }
+  if (!o.planner) { box.innerHTML = `<div class="muted" style="margin-top:6px">Nessuna build scelta. Apri una build in <a class="link" href="#/build">Build</a>, scheda Paragon, e premi “Paragon nell'overlay in gioco”.</div>`; return; }
   box.innerHTML = `<div class="skel" style="height:120px"></div>`;
-  let p; try { p = await getPlanner(o.planner); } catch (e) { box.innerHTML = `<div class="muted">Planner non disponibile: ${esc(e.message)}</div>`; return; }
+  let p; try { p = await api('/api/ovparagon?id=' + encodeURIComponent(o.planner)); } catch (e) { box.innerHTML = `<div class="muted">Paragon non disponibile: ${esc(e.message)}</div>`; return; }
   const vi = Math.min(o.variant || 0, p.variants.length - 1), v = p.variants[vi] || {}, steps = v.paragon || [];
   const si = Math.min(o.step || 0, Math.max(steps.length - 1, 0)), st = steps[si];
   box.innerHTML = `<div class="row wrap" style="gap:10px;margin:6px 0 12px"><b style="font:600 16px var(--serif)">${esc(o.title || p.name)}</b><span class="sp"></span>

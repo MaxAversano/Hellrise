@@ -167,3 +167,45 @@ func eventNotifyLoop() {
 		}
 	}
 }
+
+// avviso di Windows quando una build salvata viene aggiornata sul sito
+func savedNotifyLoop() {
+	time.Sleep(2 * time.Minute)
+	for {
+		s := getSettings()
+		if s.Notifications && len(s.SavedBuilds) > 0 {
+			var told []string
+			upd := map[string]int64{}
+			for _, sb := range s.SavedBuilds {
+				if sb.Seen == 0 {
+					continue
+				}
+				v := seasonView(sb.Season)
+				if v == nil {
+					continue
+				}
+				for _, b := range v.Builds {
+					if keyURL(b.URL) == keyURL(sb.URL) && b.Updated > sb.Seen && b.Updated != sb.Told {
+						told = append(told, sb.Title)
+						upd[sb.URL] = b.Updated
+					}
+				}
+			}
+			if len(told) > 0 {
+				msg := told[0] + " è stata aggiornata"
+				if len(told) > 1 {
+					msg = fmt.Sprintf("%s e altre %d build salvate sono state aggiornate", told[0], len(told)-1)
+				}
+				notify("Build aggiornata", msg)
+				updateSettings(func(s *Settings) {
+					for i := range s.SavedBuilds {
+						if t, ok := upd[s.SavedBuilds[i].URL]; ok {
+							s.SavedBuilds[i].Told = t
+						}
+					}
+				})
+			}
+		}
+		time.Sleep(10 * time.Minute)
+	}
+}
