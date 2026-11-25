@@ -79,6 +79,15 @@ func setupAPI(mux *http.ServeMux) {
 		jsonOut(w, b)
 	})
 
+	mux.HandleFunc("/api/d4bbuild", func(w http.ResponseWriter, r *http.Request) {
+		b, err := d4bBuildDetail(r.URL.Query().Get("u"))
+		if err != nil {
+			jsonErr(w, 502, "D4Builds: "+err.Error())
+			return
+		}
+		jsonOut(w, b)
+	})
+
 	mux.HandleFunc("/api/guide", func(w http.ResponseWriter, r *http.Request) {
 		u := r.URL.Query().Get("u")
 		if strings.HasPrefix(u, "https://") {

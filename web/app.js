@@ -295,9 +295,10 @@ async function showBuild(b) {
   try {
     if (b.profile) p = await getPlanner(b.profile);
     else if (b.src === 'Mobalytics') p = await (plannerCache['m:' + b.url] ||= api('/api/mobabuild?u=' + encodeURIComponent(b.url)).catch(e => { delete plannerCache['m:' + b.url]; throw e; }));
-    else {
-      const sim = similarMaxroll(b);
-      if (sim) { p = await getPlanner(sim.profile); note = `D4Builds tiene i dettagli delle build in un archivio non leggibile dall'app: qui sotto vedi la guida Maxroll più simile, <b>${esc(sim.title)}</b>. Per la versione esatta usa “Apri guida”.`; }
+    else if (b.src === 'D4Builds') {
+      el.innerHTML = head + `<div class="robinfo" style="background:rgba(255,190,90,.06)">Leggo la pagina di D4Builds… la prima volta ci mette qualche secondo.</div><div class="skel" style="height:220px;margin-top:12px"></div>`; bindOpen();
+      try { p = await (plannerCache['d:' + b.url] ||= api('/api/d4bbuild?u=' + encodeURIComponent(b.url)).catch(e => { delete plannerCache['d:' + b.url]; throw e; })); }
+      catch (e) { const sim = similarMaxroll(b); if (sim) { p = await getPlanner(sim.profile); note = `Non sono riuscito a leggere la pagina di D4Builds (${esc(e.message)}): qui sotto vedi la guida Maxroll più simile, <b>${esc(sim.title)}</b>.`; } else throw e; }
     }
   } catch (e) { note = 'Dettagli non disponibili: ' + esc(e.message); }
   if (!p || !p.variants?.length) {

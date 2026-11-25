@@ -135,3 +135,19 @@ func TestRealSeason(t *testing.T) {
 		t.Fatal("troppo pochi dati")
 	}
 }
+
+func TestD4BParse(t *testing.T) {
+	page := `<div class="builder__gear__item left"><div class="builder__gear__item__wrapper"><div class="builder__new__gems"><div class="builder__gems__item"><button class="builder__gem__icon"><img src="x" alt="Ruby"></button></div></div></div><div class="builder__gear__info"><div class="builder__gear__name builder__gear__name--mythic">Tuskhelm of Joritz the Mighty</div><div class="builder__gear__slot">Helm</div></div></div><div class="builder__gear__item left"><div class="builder__gear__info"><div class="builder__gear__name">Aspect of Inner Calm</div><div class="builder__gear__slot">Gloves</div></div></div>
+<div class="builder__skills__list"><button class="builder__skill"><div class="build__skill__wrapper Flay " role="button"><img src="y" class="build__skill__icon" alt="Flay"></div></button><div class="build__skill__wrapper WarCry " role="button"><img src="z" alt="War Cry"></div></div><div class="build__skill__name build__skill__name--rune Rare">Mot</div><input type="text" class="builder__variant__input" id="r" value="Base">`
+	dataDir = t.TempDir()
+	os.MkdirAll(dataDir+"/cache", 0o755)
+	os.WriteFile(dataDir+"/cache/d4b_"+hashURL("https://d4builds.gg/builds/test/")+".html", []byte(page), 0o644)
+	b, err := d4bBuildDetail("https://d4builds.gg/builds/test/")
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Logf("%+v", b.Variants[0])
+	if len(b.Variants[0].Gear) < 3 || len(b.Variants[0].Skills) != 2 {
+		t.Fatal("parsing incompleto")
+	}
+}
