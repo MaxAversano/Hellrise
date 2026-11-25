@@ -318,7 +318,7 @@ func matchBoard(gr PGrid, raw string, bw int) BoardDetect {
 			}
 		}
 	}
-	if bestScore < 0.8 {
+	if bestScore < 0.74 {
 		d.Score = bestScore
 		return d
 	}

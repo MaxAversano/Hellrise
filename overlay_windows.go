@@ -863,26 +863,39 @@ var det struct {
 func lastDetect() (BoardDetect, bool) {
 	det.Lock()
 	defer det.Unlock()
-	return det.last, det.last.OK && time.Since(det.at) < 3*time.Second
+	return det.last, det.last.OK && time.Since(det.at) < 5*time.Second
 }
 
 func autoDetectLoop() {
 	for {
 		det.Lock()
-		locked := det.last.OK && time.Since(det.at) < 4*time.Second
+		locked := det.last.OK && time.Since(det.at) < 5*time.Second
 		lastP := det.last.Cell
 		det.Unlock()
+		wait := 2200 * time.Millisecond // ricerca completa: più rada per non pesare sul gioco
 		if locked {
-			time.Sleep(900 * time.Millisecond) // tavola già trovata: si segue (veloce)
-		} else {
-			time.Sleep(2200 * time.Millisecond) // ricerca completa: più rada per non pesare sul gioco
+			wait = 900 * time.Millisecond // tavola già trovata: si segue (veloce)
+		}
+		for t0 := time.Now(); time.Since(t0) < wait; {
+			time.Sleep(100 * time.Millisecond)
+			if ovMoveHeld() && !locked { // tieni premuto il tasto (Alt): cerca subito
+				break
+			}
 		}
 		o := getSettings().Overlay
 		if !o.Enabled || !o.Paragon.On || o.ParMin || o.Mode == "panel" || ovHideAll || !diabloForeground() {
+			if time.Since(detLogAt) > 60*time.Second && o.Enabled {
+				detLogAt = time.Now()
+				log.Printf("paragon: riconoscimento fermo (attivo %v, paragon %v, chiuso %v, modo %q, nascosto %v, gioco davanti %v)", o.Enabled, o.Paragon.On, o.ParMin, o.Mode, ovHideAll, diabloForeground())
+			}
 			continue
 		}
 		cb, _ := currentBoard(o)
 		if cb.board == nil || cb.step == nil {
+			if time.Since(detLogAt) > 60*time.Second {
+				detLogAt = time.Now()
+				log.Printf("paragon: nessuna tavola della build fissata")
+			}
 			continue
 		}
 		g, w, h := captureGray(rect{0, 0, ovW, ovH})
@@ -919,16 +932,45 @@ func autoDetectLoop() {
 				}
 			}
 		}
+		bestScore := d.Score
+		if !d.OK {
+			for _, b := range cb.step.Boards {
+				for _, gr := range grids {
+					if x := matchBoard(gr, b.RawCells, b.Width); x.Score > bestScore {
+						bestScore = x.Score
+					}
+				}
+			}
+		}
 		if d.OK {
 			d = refineDetect(g, w, h, d, cb.step.Boards[bi].RawCells, cb.step.Boards[bi].Width)
+		}
+		if time.Since(detLogAt) > 20*time.Second {
+			detLogAt = time.Now()
+			var lum float64
+			for _, v := range g {
+				lum += v
+			}
+			log.Printf("paragon: cattura %dx%d (luce media %.0f), %d griglie, tavola %d trovata=%v punteggio %.2f, casella %.1f", w, h, lum/float64(len(g)), len(grids), bi, d.OK, bestScore, d.Cell)
 		}
 		d.Board = bi
 		det.Lock()
 		if d.OK {
 			d.X, d.Y, d.Cell = d.X*f, d.Y*f, d.Cell*f
 			c := det.cand
-			same := c.OK && absf(c.Cell-d.Cell) < 0.05*d.Cell && absf(c.X-d.X) < d.Cell/3 && absf(c.Y-d.Y) < d.Cell/3 && c.Rot == d.Rot && c.Board == d.Board
-			if same || d.Score >= 0.92 || (det.last.OK && time.Since(det.at) < 4*time.Second) {
+			near := func(a BoardDetect) bool {
+				return a.OK && absf(a.Cell-d.Cell) < 0.05*d.Cell && absf(a.X-d.X) < d.Cell/3 && absf(a.Y-d.Y) < d.Cell/3 && a.Rot == d.Rot && a.Board == d.Board
+			}
+			same := near(c)
+			if near(det.last) && time.Since(det.at) < 6*time.Second {
+				// stessa tavola di prima: le cornici restano ferme (niente tremolio), si sposta solo
+				// se lo schermo si è mosso davvero
+				l := det.last
+				if absf(l.X-d.X) < d.Cell*0.12 && absf(l.Y-d.Y) < d.Cell*0.12 && absf(l.Cell-d.Cell) < 0.02*d.Cell {
+					d.X, d.Y, d.Cell = l.X, l.Y, l.Cell
+				}
+			}
+			if same || d.Score >= 0.88 || (det.last.OK && time.Since(det.at) < 6*time.Second) {
 				det.last, det.at = d, time.Now()
 				if bi >= 0 && bi != o.Board { // la guida segue la tavola che hai aperto in gioco
 					go updateSettings(func(s *Settings) { s.Overlay.Board = bi })
@@ -941,6 +983,10 @@ func autoDetectLoop() {
 		det.Unlock()
 	}
 }
+
+var detLogAt time.Time
+
+func ovMoveHeld() bool { return ovMove }
 
 // zone dove l'overlay ha disegnato i suoi riquadri (per toglierle dalla cattura)
 var (
@@ -1102,7 +1148,8 @@ func overlayTick() {
 		}
 	}
 	ovTicks++
-	if show && (ovEdit || ovMove || ovTicks%5 == 0) {
+	_, aligned := lastDetect()
+	if show && (ovEdit || ovMove || aligned || ovTicks%5 == 0) {
 		pInvalidateRect.Call(ovHwnd, 0, 0)
 	}
 }
