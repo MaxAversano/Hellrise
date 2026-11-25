@@ -93,6 +93,7 @@ var (
 	ovMove            bool // tasto per spostare tenuto premuto
 	ovAlpha           int
 	ovLocks           = map[string]rect{}
+	ovEye             rect
 )
 
 var (
@@ -279,8 +280,24 @@ func paintOverlay(hdc uintptr) {
 	if o.Timers.On {
 		hits["timers"] = drawTimers(mem, o, sc, k)
 	}
+	ovEye = rect{}
 	if o.Paragon.On {
-		hits["paragon"] = drawParagon(mem, o, sc, k)
+		r := drawParagon(mem, o, sc, k)
+		hits["paragon"] = r
+		if r.r > r.l { // occhietto: apre e chiude il paragon (clic tenendo premuto il tasto per spostare, o Alt+Shift+P)
+			e := rect{r.l + sc(6), r.t + sc(4), r.l + sc(30), r.t + sc(26)}
+			if !o.ParMin {
+				e = rect{r.r - sc(62), r.t + sc(4), r.r - sc(36), r.t + sc(26)}
+			}
+			ovRound(mem, e, sc(8), cHead, cBorder)
+			sym := "\U0001F441"
+			c := cAcc2
+			if o.ParMin {
+				c = cMute
+			}
+			ovText(mem, sym, e, c, symFont(int(12*k)), dtCenter)
+			ovEye = e
+		}
 	}
 	if o.Rotation.On && len(o.RotLines) > 0 {
 		hits["rotation"] = drawRotation(mem, o, sc, k)
@@ -507,6 +524,13 @@ func currentBoard(o OverlaySet) (curBoard, string) {
 }
 
 func drawParagon(hdc uintptr, o OverlaySet, sc func(float64) int32, k float64) rect {
+	if o.ParMin { // chiuso: resta solo l'occhietto
+		w, h := sc(176), sc(30)
+		x, y := widgetOrigin(o.Paragon, w, h)
+		ovRound(hdc, rect{x, y, x + w, y + h}, sc(14), cPanel, cBorder)
+		ovText(hdc, "Paragon · Alt+Shift+P", rect{x + sc(34), y, x + w - sc(8), y + h}, cMute, ovFont(int(11*k), true), dtLeft)
+		return rect{x, y, x + w, y + h}
+	}
 	// automatico: se il paragon del gioco è aperto e riconosciuto, cornici sulla tavola vera;
 	// altrimenti la guida con tutto il paragon della build fissata
 	if o.Mode != "panel" {
@@ -639,7 +663,7 @@ func drawParagonGuide(hdc uintptr, o OverlaySet, sc func(float64) int32, k float
 	if len(cb.variant.Paragon) > 1 {
 		title += " · " + strings.ToUpper(step.Name)
 	}
-	ovText(hdc, title, rect{x + pad, y + sc(4), x + w - sc(40), y + sc(24)}, cMute, f10, dtLeft|0x8000)
+	ovText(hdc, title, rect{x + pad, y + sc(4), x + w - sc(70), y + sc(24)}, cMute, f10, dtLeft|0x8000)
 	ovText(hdc, fmt.Sprintf("Tavola %d/%d · %s", bi+1, len(step.Boards), pick(board.Name, board.En)), rect{x + pad, y + sc(24), x + w - pad, y + sc(46)}, cInk, f13, dtLeft|0x8000)
 	// mappa di tutte le tavole
 	mx, my := x+pad, y+head
@@ -797,7 +821,7 @@ func autoDetectLoop() {
 	for {
 		time.Sleep(1200 * time.Millisecond)
 		o := getSettings().Overlay
-		if !o.Enabled || !o.Paragon.On || o.Mode == "panel" || ovHideAll || !diabloForeground() {
+		if !o.Enabled || !o.Paragon.On || o.ParMin || o.Mode == "panel" || ovHideAll || !diabloForeground() {
 			continue
 		}
 		cb, _ := currentBoard(o)
@@ -925,6 +949,11 @@ func setOverlayHotkeys(on bool) {
 			pUnregisterHotKey.Call(ovHwnd, uintptr(id))
 		}
 	}
+	if on { // Alt+Shift+P: apre o chiude il paragon (occhietto)
+		pRegisterHotKey.Call(ovHwnd, 15, 0x0001|modShift|modNoRepeat, 'P')
+	} else {
+		pUnregisterHotKey.Call(ovHwnd, 15)
+	}
 }
 
 func setOverlayEdit(on bool) {
@@ -1013,6 +1042,8 @@ func overlayHotkey(id int) {
 				s.Overlay.Rot[cb.key] = ((cb.rot+d)%4 + 4) % 4
 			})
 		}
+	case 15:
+		updateSettings(func(s *Settings) { s.Overlay.ParMin = !s.Overlay.ParMin })
 	case 14:
 		updateSettings(func(s *Settings) {
 			if s.Overlay.Mode == "panel" {
@@ -1077,6 +1108,11 @@ func ovWndProc(hwnd, msg, wparam, lparam uintptr) uintptr {
 		if ovEdit || ovMove {
 			x, y := int32(int16(lparam&0xFFFF)), int32(int16(lparam>>16&0xFFFF))
 			in := func(r rect) bool { return x >= r.l && x <= r.r && y >= r.t && y <= r.b }
+			if ovEye.r > ovEye.l && in(ovEye) {
+				updateSettings(func(s *Settings) { s.Overlay.ParMin = !s.Overlay.ParMin })
+				pInvalidateRect.Call(hwnd, 0, 0)
+				return 0
+			}
 			for key, r := range ovLocks {
 				if in(r) {
 					updateSettings(func(s *Settings) {
