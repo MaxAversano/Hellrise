@@ -11,6 +11,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"strconv"
 	"strings"
 	"sync"
 	"time"
@@ -202,6 +203,9 @@ func (f *D4Full) slim() *PBuild {
 		return en
 	}
 	b := &PBuild{Name: f.Head["title"], URL: f.URL}
+	if t := d4bDate(f.Head["updated"]); t > 0 {
+		b.Updated = strconv.FormatInt(t, 10)
+	}
 	for _, v := range f.Variants {
 		pv := PVariant{Name: str(v, "name")}
 		for _, g := range list(v, "gear") {
@@ -240,6 +244,15 @@ func (f *D4Full) slim() *PBuild {
 		b.Variants = append(b.Variants, pv)
 	}
 	return b
+}
+
+// "Updated on November 12, 2026." → data unix
+func d4bDate(s string) int64 {
+	s = strings.TrimSuffix(strings.TrimSpace(strings.TrimPrefix(strings.TrimSpace(s), "Updated on")), ".")
+	if t, err := time.Parse("January 2, 2006", strings.TrimSpace(s)); err == nil {
+		return t.Unix()
+	}
+	return 0
 }
 
 func d4bBuildDetail(u string) (*PBuild, error) {

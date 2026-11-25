@@ -19,6 +19,8 @@ if ($what === 'season') {
     $f = STORE . '/' . season_file((int)($_GET['n'] ?? 0));
     if (!is_file($f)) { http_response_code(404); exit('stagione non disponibile'); }
     out_json(file_get_contents($f));
+} elseif ($what === 'fullidx') {
+    out_json(is_file(STORE . '/full_index.json') ? file_get_contents(STORE . '/full_index.json') : '{}');
 } elseif ($what === 'full') {
     $id = preg_replace('/[^0-9a-f]/', '', strtolower((string)($_GET['id'] ?? '')));
     $f = STORE . '/full/' . $id . '.json.gz';

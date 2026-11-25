@@ -8,25 +8,26 @@ import (
 )
 
 type Settings struct {
-	RemoteURL      string     `json:"remoteUrl"`   // server dati (es. https://www.aversano.design/hr-data/)
-	RemoteToken    string     `json:"remoteToken"` // codice segreto del server (lo stesso di BetterStomp)
-	Season         int        `json:"season"`      // 0 = l'ultima disponibile
-	Class          string     `json:"class"`       // ultima classe scelta
-	NativeFrame    bool       `json:"nativeFrame"`
-	Autostart      bool       `json:"autostart"`
-	KeepInTray     bool       `json:"keepInTray"` // resta nella barra per le notifiche anche a finestra chiusa
-	Notifications  bool       `json:"notifications"`
-	NotifyBoss     bool       `json:"notifyBoss"`
-	NotifyHelltide bool       `json:"notifyHelltide"`
-	NotifyLegion   bool       `json:"notifyLegion"`
-	NotifyBefore   int        `json:"notifyBefore"` // minuti prima
-	D4PressurePath string     `json:"d4pressurePath"`
-	Favorites      []string   `json:"favorites"` // oggetti seguiti in "Chi droppa cosa"
-	Blur           bool       `json:"blur"`      // effetto vetro più marcato
-	Motion         bool       `json:"motion"`    // animazioni dello sfondo
-	Accent         string     `json:"accent"`    // colore principale
-	Lang           string     `json:"lang"`      // nomi di gioco: "it" tradotti, "en" originali
-	Overlay        OverlaySet `json:"overlay"`
+	RemoteURL      string       `json:"remoteUrl"`   // server dati (es. https://www.aversano.design/hr-data/)
+	RemoteToken    string       `json:"remoteToken"` // codice segreto del server (lo stesso di BetterStomp)
+	Season         int          `json:"season"`      // 0 = l'ultima disponibile
+	Class          string       `json:"class"`       // ultima classe scelta
+	NativeFrame    bool         `json:"nativeFrame"`
+	Autostart      bool         `json:"autostart"`
+	KeepInTray     bool         `json:"keepInTray"` // resta nella barra per le notifiche anche a finestra chiusa
+	Notifications  bool         `json:"notifications"`
+	NotifyBoss     bool         `json:"notifyBoss"`
+	NotifyHelltide bool         `json:"notifyHelltide"`
+	NotifyLegion   bool         `json:"notifyLegion"`
+	NotifyBefore   int          `json:"notifyBefore"` // minuti prima
+	D4PressurePath string       `json:"d4pressurePath"`
+	Favorites      []string     `json:"favorites"`   // oggetti seguiti in "Chi droppa cosa"
+	SavedBuilds    []SavedBuild `json:"savedBuilds"` // build salvate (con filtri e variante)
+	Blur           bool         `json:"blur"`        // effetto vetro più marcato
+	Motion         bool         `json:"motion"`      // animazioni dello sfondo
+	Accent         string       `json:"accent"`      // colore principale
+	Lang           string       `json:"lang"`        // nomi di gioco: "it" tradotti, "en" originali
+	Overlay        OverlaySet   `json:"overlay"`
 }
 
 type OWidget struct {
@@ -136,4 +137,19 @@ func betterStompToken() string {
 		}
 	}
 	return ""
+}
+
+type SavedBuild struct {
+	URL     string `json:"url"`
+	Src     string `json:"src"`
+	Title   string `json:"title"`
+	Cls     string `json:"cls"`
+	Type    string `json:"type"`
+	Season  int    `json:"season"`
+	Profile string `json:"profile,omitempty"`
+	Variant int    `json:"variant"`
+	Tab     string `json:"tab,omitempty"`
+	Note    string `json:"note,omitempty"`
+	At      int64  `json:"at"`
+	Seen    int64  `json:"seen"` // data di aggiornamento della build vista l'ultima volta
 }

@@ -54,6 +54,12 @@ if (($_GET['upload'] ?? '') === 'full') {
     if (!is_dir($d)) @mkdir($d, 0755, true);
     file_put_contents($d . '/' . $id . '.json.gz.tmp', gzencode($raw, 6));
     rename($d . '/' . $id . '.json.gz.tmp', $d . '/' . $id . '.json.gz');
+    // indice: quando è stata letta ogni build (l'app di Max salta quelle ancora fresche)
+    $j = json_decode($raw, true);
+    $idx = load_json('full_index.json', []);
+    if (!is_array($idx)) $idx = [];
+    $idx[$id] = ['at' => (int)($j['at'] ?? time()), 'xv' => (int)($j['xv'] ?? 0), 'upd' => (string)($j['head']['updated'] ?? ''), 'url' => (string)($j['url'] ?? '')];
+    file_put_contents(STORE . '/full_index.json', json_encode($idx, JSON_UNESCAPED_SLASHES | JSON_UNESCAPED_UNICODE));
     echo 'ok';
     exit;
 }

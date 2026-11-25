@@ -136,7 +136,7 @@ function renderSeasonPick() {
 function route() {
   const p = (location.hash.replace(/^#\/?/, '').split('/')[0]) || 'home';
   S.page = p;
-  $$('#side a').forEach(a => a.classList.toggle('on', a.dataset.p === p));
+  $$('#side a').forEach(a => a.classList.toggle('on', a.dataset.p === (p === 'b' ? 'build' : p)));
   const fn = PAGES[p] || PAGES.home;
   const main = $('#main');
   main.scrollTop = 0;
@@ -207,19 +207,22 @@ PAGES.home = async main => {
     <div class="home2">
       <div class="glass card"><h2>Le migliori build ora <span class="count">tier list di Rob2628</span><span class="sp"></span><a class="link" href="#/build" style="font-size:12.5px">Tutte le build →</a></h2><div class="mini" id="topb"><div class="skel" style="height:220px"></div></div></div>
       <div class="grid" style="align-content:start">
+        <div class="glass card"><h2>Le tue build <span class="sp"></span><a class="link" href="#/build" style="font-size:12.5px">Tutte →</a></h2><div id="hsaved"></div></div>
         <div class="glass card"><h2>Leveling consigliato <span class="count">${esc(clsName(S.cls))}</span></h2><div class="mini" id="topl"><div class="skel" style="height:60px"></div></div></div>
         <div class="glass card"><h2>Ultima patch</h2><div id="lastp"><div class="skel" style="height:60px"></div></div></div>
         <div class="glass card"><h2>Stato dei dati</h2><div id="dstat"></div></div>
       </div>
     </div></div>`;
   renderDataStatus($('#dstat'));
+  renderSaved($('#hsaved'), true);
   try {
     const b = await getBuilds(S.season);
     const rob = b.rob?.tier || [];
     $('#topb').innerHTML = rob.length ? rob.slice(0, 8).map(r => `<div class="mrow" data-cls="${r.cls}">${tierBadge(r.tier)}<div class="t"><b>${esc(r.build)}</b><small>${esc(clsName(r.cls))}${r.info ? ' · ' + esc(r.info) : ''}</small></div><span class="ci" style="color:var(--mute)">${clsIcon(r.cls).replace('<svg', '<svg width="18" height="18"')}</span></div>`).join('') : '<div class="muted">Tier list non ancora disponibile per questa stagione.</div>';
+    $('#toplrow')?.addEventListener('click', () => { if (lv?.maxroll) { (S.ui.build ||= { type: 'Endgame', src: 'all', variant: 0 }).variantName = 'level'; openBuildPage(lv.maxroll); } else location.hash = '#/build'; });
     $$('#topb .mrow').forEach(r => r.onclick = () => { setCls(r.dataset.cls); location.hash = '#/build'; });
     const lv = levelingPick(b, S.cls);
-    $('#topl').innerHTML = lv ? `<div class="mrow" onclick="location.hash='#/build'">${tierBadge(lv.tier)}<div class="t"><b>${esc(lv.title)}</b><small>${esc(lv.info || lv.src)}</small></div></div>` : '<div class="muted">Nessuna build leveling per questa classe.</div>';
+    $('#topl').innerHTML = lv ? `<div class="mrow" id="toplrow">${tierBadge(lv.tier)}<div class="t"><b>${esc(lv.title)}</b><small>${esc(lv.info || lv.src)}</small></div></div>` : '<div class="muted">Nessuna build leveling per questa classe.</div>';
   } catch (e) { $('#topb').innerHTML = noData(e.message); $('#topl').innerHTML = ''; }
   try {
     const p = await api('/api/patches');
@@ -247,43 +250,106 @@ function levelingPick(b, cls) {
 
 // ---------------------------------------------------------------- build
 PAGES.build = async main => {
-  const ui = S.ui.build ||= { type: 'Endgame', src: 'all', sel: null, variant: 0 };
+  const ui = S.ui.build ||= { type: 'Endgame', src: 'all', variant: 0 };
   main.innerHTML = `<div class="page">
     <div class="hdr"><div><h1 class="pt">Build</h1><p class="sub" style="margin:0">Maxroll, D4Builds e Mobalytics, con la tier list di Rob2628 · stagione ${S.season || '—'}</p></div></div>
+    <div id="saved"></div>
     <div class="classes">${CLASSES.map(([c]) => `<div class="cls ${c === S.cls ? 'on' : ''}" data-c="${c}"><span class="ci">${clsIcon(c)}</span>${esc(clsName(c))}</div>`).join('')}</div>
     <div id="lvb"></div>
-    <div class="bsplit">
-      <div class="glass" style="padding:0">
-        <div class="row wrap" style="padding:12px 12px 0;gap:8px">
-          <div class="seg" id="btype">${['Endgame', 'Leveling', 'Tutte'].map(t => `<button data-v="${t}" class="${ui.type === t ? 'on' : ''}">${t}</button>`).join('')}</div>
-          <div class="seg" id="bsrc">${[['all', 'Tutte'], ['Maxroll', 'Maxroll'], ['D4Builds', 'D4Builds'], ['Mobalytics', 'Moba']].map(([v, l]) => `<button data-v="${v}" class="${ui.src === v ? 'on' : ''}">${l}</button>`).join('')}</div>
-        </div>
-        <div class="blist" id="blist"><div class="skel" style="height:300px"></div></div>
-      </div>
-      <div class="glass bdetail" id="bdet"><div class="empty">${IC.doc}<span>Scegli una build dall'elenco</span></div></div>
-    </div></div>`;
-  $$('.cls', main).forEach(el => el.onclick = () => { setCls(el.dataset.c); ui.sel = null; PAGES.build(main); });
-  $$('#btype button').forEach(b => b.onclick = () => { ui.type = b.dataset.v; ui.sel = null; PAGES.build(main); });
-  $$('#bsrc button').forEach(b => b.onclick = () => { ui.src = b.dataset.v; ui.sel = null; PAGES.build(main); });
+    <div class="row wrap" style="gap:8px;margin-bottom:12px">
+      <div class="seg" id="btype">${['Endgame', 'Leveling', 'Tutte'].map(t => `<button data-v="${t}" class="${ui.type === t ? 'on' : ''}">${t}</button>`).join('')}</div>
+      <div class="seg" id="bsrc">${[['all', 'Tutte le fonti'], ['Maxroll', 'Maxroll'], ['D4Builds', 'D4Builds'], ['Mobalytics', 'Mobalytics']].map(([v, l]) => `<button data-v="${v}" class="${ui.src === v ? 'on' : ''}">${l}</button>`).join('')}</div>
+      <span class="sp"></span><span class="muted" id="bcount" style="font-size:12.5px"></span>
+    </div>
+    <div class="bgrid" id="blist"><div class="skel" style="height:300px;grid-column:1/-1"></div></div></div>`;
+  renderSaved($('#saved'));
+  $$('.cls', main).forEach(el => el.onclick = () => { setCls(el.dataset.c); PAGES.build(main); });
+  $$('#btype button').forEach(b => b.onclick = () => { ui.type = b.dataset.v; PAGES.build(main); });
+  $$('#bsrc button').forEach(b => b.onclick = () => { ui.src = b.dataset.v; PAGES.build(main); });
   let data;
   try { data = await getBuilds(S.season); } catch (e) { $('#blist').innerHTML = noData(e.message); return; }
+  ui.all = data.builds;
   const lv = levelingPick(data, S.cls);
   $('#lvb').innerHTML = lv ? `<div class="glass lvbanner"><span class="ic">${IC.sprout}</span><div style="flex:1"><div class="lbl">Leveling consigliato per ${esc(clsName(S.cls))}</div><div style="font:600 17px/1.3 var(--serif);margin-top:3px">${esc(lv.title)} ${lv.tier ? tierBadge(lv.tier) : ''}</div><div class="muted" style="font-size:12.5px">${esc(lv.info || '')}${lv.src === 'Rob2628' ? ' · dalla tier list leveling di Rob2628' : ''}</div></div>${lv.maxroll ? `<button class="btn" id="lvopen">Apri su Hellrise</button>` : ''}${lv.url ? `<button class="btn ghost" id="lvlink">${IC.ext} Guida</button>` : ''}</div>` : '';
   if (lv?.url) $('#lvlink').onclick = () => openGuide(lv.url);
-  if (lv?.maxroll) $('#lvopen').onclick = () => { ui.type = 'Tutte'; ui.sel = lv.maxroll.url; ui.variantName = 'level'; PAGES.build(main); };
-  ui.all = data.builds;
+  if (lv?.maxroll) $('#lvopen').onclick = () => { ui.variantName = 'level'; openBuildPage(lv.maxroll); };
   let list = data.builds.filter(b => b.cls === S.cls);
   if (ui.type !== 'Tutte') list = list.filter(b => ui.type === 'Leveling' ? /level/i.test(b.type) : !/level/i.test(b.type));
   if (ui.src !== 'all') list = list.filter(b => b.src === ui.src);
   const tv = { 'S+': 0, S: 1, A: 2, B: 3, C: 4, D: 5 };
   list.sort((a, b) => ((a.fromSeason ? 1 : 0) - (b.fromSeason ? 1 : 0)) || ((tv[a.tier] ?? 9) - (tv[b.tier] ?? 9)) || ((a.src === 'Maxroll' ? 0 : 1) - (b.src === 'Maxroll' ? 0 : 1)) || ((b.likes || 0) - (a.likes || 0)) || ((b.updated || 0) - (a.updated || 0)));
-  if (!list.length) { $('#blist').innerHTML = `<div class="empty">${IC.search}<span>Nessuna build con questi filtri</span></div>`; return; }
-  $('#blist').innerHTML = list.map((b, i) => `<div class="bitem ${ui.sel === b.url ? 'on' : ''}" data-i="${i}">${tierBadge(b.tier)}<div class="t"><b>${esc(b.title)}</b><div class="meta"><span class="badge src-${b.src}">${b.src}</span>${b.fromSeason ? `<span class="badge">S${b.fromSeason}</span>` : ''}<span class="badge ${/level/i.test(b.type) ? 'lv' : 'eg'}">${esc(b.type)}</span>${b.author ? `<span>${esc(b.author)}</span>` : ''}${b.likes ? `<span>♥ ${b.likes}</span>` : ''}</div></div></div>`).join('');
-  $$('#blist .bitem').forEach(el => el.onclick = () => { $$('#blist .bitem').forEach(x => x.classList.remove('on')); el.classList.add('on'); ui.sel = list[+el.dataset.i].url; ui.variant = 0; showBuild(list[+el.dataset.i]); });
-  const cur = list.find(b => b.url === ui.sel) || list[0];
-  ui.sel = cur.url;
-  $$('#blist .bitem')[list.indexOf(cur)]?.classList.add('on');
-  showBuild(cur);
+  $('#bcount').textContent = `${list.length} build`;
+  if (!list.length) { $('#blist').innerHTML = `<div class="empty" style="grid-column:1/-1">${IC.search}<span>Nessuna build con questi filtri</span></div>`; return; }
+  $('#blist').innerHTML = list.map((b, i) => buildCard(b, i)).join('');
+  $$('#blist .bcard').forEach(el => el.onclick = ev => { const b = list[+el.dataset.i]; if (ev.target.closest('.bstar')) { toggleSave(b); el.querySelector('.bstar').classList.toggle('on', isSaved(b.url)); renderSaved($('#saved')); return; } openBuildPage(b); });
+};
+function buildCard(b, i) {
+  const sv = savedOf(b.url);
+  const changed = sv && sv.seen && b.updated && b.updated > sv.seen;
+  return `<div class="bcard glass" data-i="${i}">${tierBadge(b.tier)}<div class="t"><b>${esc(b.title)}</b><div class="meta"><span class="badge src-${b.src}">${b.src}</span>${b.fromSeason ? `<span class="badge">S${b.fromSeason}</span>` : ''}<span class="badge ${/level/i.test(b.type) ? 'lv' : 'eg'}">${esc(b.type)}</span>${b.author ? `<span>${esc(b.author)}</span>` : ''}${b.likes ? `<span>♥ ${b.likes}</span>` : ''}</div>${b.updated ? `<div class="upd ${changed ? 'new' : ''}">${changed ? '● aggiornata ' : 'aggiornata '}${dateLbl(b.updated)}</div>` : ''}</div><button class="bstar ${sv ? 'on' : ''}" title="${sv ? 'Togli dalle build salvate' : 'Salva questa build'}">${IC.star}</button></div>`;
+}
+
+// ---------- build salvate (con variante e scheda scelte), solo su questo PC ----------
+const savedList = () => S.st.settings?.savedBuilds || [];
+const savedOf = url => savedList().find(x => x.url === url);
+const isSaved = url => !!savedOf(url);
+async function saveList(list) { try { S.st.settings = await post('/api/settings', { savedBuilds: list }); } catch (e) { toast(e.message); } }
+function toggleSave(b) {
+  let list = savedList().slice();
+  if (isSaved(b.url)) { list = list.filter(x => x.url !== b.url); toast('Build tolta dalle salvate'); }
+  else { const ui = S.ui.build || {}; list.unshift({ url: b.url, src: b.src, title: b.title, cls: b.cls, type: b.type, season: b.fromSeason || S.season, profile: b.profile || '', variant: ui.openUrl === b.url ? (ui.variant || 0) : 0, tab: ui.openUrl === b.url ? (ui.btab || 'gear') : 'gear', at: Math.floor(Date.now() / 1000), seen: b.updated || 0 }); toast('Build salvata'); }
+  S.st.settings.savedBuilds = list;
+  saveList(list);
+}
+let savedT;
+function touchSaved(url, patch) {
+  const list = savedList().map(x => x.url === url ? { ...x, ...patch } : x);
+  if (JSON.stringify(list) === JSON.stringify(savedList())) return;
+  S.st.settings.savedBuilds = list;
+  clearTimeout(savedT); savedT = setTimeout(() => saveList(list), 800);
+}
+async function savedWithUpdates() {
+  const list = savedList();
+  const seasons = [...new Set(list.map(x => x.season))];
+  const by = {};
+  for (const n of seasons) { try { (await getBuilds(n)).builds.forEach(b => { by[b.url] = b; }); } catch { } }
+  // la prima data conosciuta fa da riferimento: da lì in poi ogni modifica viene segnalata
+  list.forEach(x => { if (!x.seen && by[x.url]?.updated) touchSaved(x.url, { seen: by[x.url].updated }); });
+  return list.map(x => ({ ...x, cur: by[x.url] || null, changed: !!(x.seen && by[x.url]?.updated && by[x.url].updated > x.seen) }));
+}
+async function renderSaved(el, compact) {
+  if (!el) return;
+  const list = savedList();
+  if (!list.length) { el.innerHTML = compact ? '<div class="muted">Nessuna build salvata: usa la stella ☆ su una build.</div>' : ''; return; }
+  const rows = await savedWithUpdates();
+  const n = rows.filter(r => r.changed).length;
+  el.innerHTML = `${compact ? '' : `<div class="lbl" style="margin:0 2px 8px">Le tue build salvate · ${rows.length}${n ? ` · <span style="color:var(--acc2)">${n} aggiornate</span>` : ''}</div>`}<div class="${compact ? 'mini' : 'savedrow'}">${rows.map((r, i) => `<div class="${compact ? 'mrow' : 'sbuild glass'} ${r.changed ? 'chg' : ''}" data-i="${i}">${compact ? '' : `<span class="ci">${clsIcon(r.cls).replace('<svg', '<svg width="18" height="18"')}</span>`}<div class="t"><b>${esc(r.title)}</b><small>${esc(r.src)} · ${esc(clsName(r.cls))} · S${r.season}${r.cur?.updated ? ` · ${r.changed ? '<span class="nw">aggiornata ' + dateLbl(r.cur.updated) + '</span>' : 'agg. ' + dateLbl(r.cur.updated)}` : ''}</small></div></div>`).join('')}</div>`;
+  $$('[data-i]', el).forEach(d => d.onclick = () => { const r = rows[+d.dataset.i]; const b = r.cur || { src: r.src, title: r.title, cls: r.cls, type: r.type, url: r.url, profile: r.profile }; if (r.season !== S.season) { S.season = r.season; renderSeasonPick(); } setCls(r.cls); openBuildPage(b); });
+}
+
+function openBuildPage(b) {
+  const ui = S.ui.build ||= { type: 'Endgame', src: 'all', variant: 0 };
+  ui.cur = b;
+  if (ui.openUrl !== b.url) { ui.variant = 0; ui.btab = 'gear'; ui.variantFor = null; }
+  const sv = savedOf(b.url);
+  if (sv && ui.openUrl !== b.url) { ui.variant = sv.variant || 0; ui.btab = sv.tab || 'gear'; ui.variantFor = b.url; }
+  ui.openUrl = b.url;
+  location.hash = '#/b/' + encodeURIComponent(b.url);
+}
+PAGES.b = async main => {
+  const ui = S.ui.build ||= { type: 'Endgame', src: 'all', variant: 0 };
+  const url = decodeURIComponent(location.hash.replace(/^#\/b\//, ''));
+  let b = ui.cur?.url === url ? ui.cur : null;
+  try { const d = await getBuilds(S.season); ui.all = d.builds; if (!b) b = d.builds.find(x => x.url === url); } catch { }
+  if (!b) { const sv = savedOf(url); if (sv) b = { src: sv.src, title: sv.title, cls: sv.cls, type: sv.type, url: sv.url, profile: sv.profile }; }
+  if (!b) { location.hash = '#/build'; return; }
+  if (ui.openUrl !== url) openBuildPage(b);
+  ui.cur = b;
+  main.innerHTML = `<div class="page"><div class="row" style="gap:8px;margin-bottom:12px"><button class="btn" id="bback">← Torna alle build</button><span class="muted" style="font-size:12.5px">${esc(clsName(b.cls))} · stagione ${b.fromSeason || S.season}</span></div><div class="glass bdetail" id="bdet"></div></div>`;
+  $('#bback').onclick = () => { location.hash = '#/build'; };
+  const sv = savedOf(url);
+  if (sv && b.updated && b.updated > (sv.seen || 0)) { if (sv.seen) toast('Questa build è stata aggiornata il ' + dateLbl(b.updated)); touchSaved(url, { seen: b.updated }); }
+  showBuild(b);
 };
 
 const SLOT_KEYS = ['LMB', 'RMB', '1', '2', '3', '4'];
@@ -343,9 +409,9 @@ const BTABS = [['gear', 'Equipaggiamento e abilità', SA + 'UI/gear_skills.png']
 
 async function showBuild(b) {
   const el = $('#bdet'), ui = S.ui.build;
-  const head = `<div class="bhead">${tierBadge(b.tier)}<div style="flex:1;min-width:0"><h2 class="title">${esc(b.title)}</h2><div class="row wrap" style="gap:6px;margin-top:6px"><span class="badge src-${b.src}">${b.src}</span>${b.fromSeason ? `<span class="badge" title="La stagione ${S.season} non ha ancora build su ${b.src}">stagione ${b.fromSeason}</span>` : ''}<span class="badge ${/level/i.test(b.type) ? 'lv' : 'eg'}">${esc(b.type)}</span>${b.author ? `<span class="muted" style="font-size:12.5px">di ${esc(b.author)}</span>` : ''}${b.updated ? `<span class="muted" style="font-size:12.5px">· aggiornata ${dateLbl(b.updated)}</span>` : ''}</div></div><button class="btn" id="bopen">${IC.ext} Apri guida</button></div>
+  const head = `<div class="bhead">${tierBadge(b.tier)}<div style="flex:1;min-width:0"><h2 class="title">${esc(b.title)}</h2><div class="row wrap" style="gap:6px;margin-top:6px"><span class="badge src-${b.src}">${b.src}</span>${b.fromSeason ? `<span class="badge" title="La stagione ${S.season} non ha ancora build su ${b.src}">stagione ${b.fromSeason}</span>` : ''}<span class="badge ${/level/i.test(b.type) ? 'lv' : 'eg'}">${esc(b.type)}</span>${b.author ? `<span class="muted" style="font-size:12.5px">di ${esc(b.author)}</span>` : ''}${b.updated ? `<span class="muted" style="font-size:12.5px">· aggiornata ${dateLbl(b.updated)}</span>` : ''}</div></div><button class="btn bsave ${isSaved(b.url) ? 'on' : ''}" id="bsave">${IC.star} ${isSaved(b.url) ? 'Salvata' : 'Salva build'}</button><button class="btn" id="bopen">${IC.ext} Apri guida</button></div>
     ${b.tier || b.info ? `<div class="robinfo"><b>Rob2628:</b> ${b.tier ? `tier ${esc(b.tier)}${b.tierNote ? ' (' + esc(b.tierNote) + ')' : ''}` : ''}${b.info ? ' · ' + esc(b.info) : ''}</div>` : ''}`;
-  const bindOpen = () => { const o = $('#bopen'); if (o) o.onclick = () => openGuide(b.url); };
+  const bindOpen = () => { const o = $('#bopen'); if (o) o.onclick = () => openGuide(b.url); const sb = $('#bsave'); if (sb) sb.onclick = () => { toggleSave(b); sb.classList.toggle('on', isSaved(b.url)); sb.innerHTML = `${IC.star} ${isSaved(b.url) ? 'Salvata' : 'Salva build'}`; }; };
   el.innerHTML = head + `<div class="skel" style="height:420px;margin-top:16px"></div>`;
   bindOpen();
   const token = (ui._tok = (ui._tok || 0) + 1);
@@ -387,11 +453,11 @@ async function showBuild(b) {
   if (!has[ui.btab]) ui.btab = 'gear';
   el.innerHTML = head + (note ? `<div class="robinfo" style="background:rgba(120,160,255,.07);border-color:rgba(120,160,255,.2)">${note}</div>` : '') + `
     <div class="btabs">${BTABS.filter(t => has[t[0]]).map(t => `<button data-t="${t[0]}" class="${ui.btab === t[0] ? 'on' : ''}">${icoImg(t[2], 'ti')}${t[1]}</button>`).join('')}</div>
-    <div class="bvar">${view.variants.length > 1 ? `<select id="bvsel">${view.variants.map((x, i) => `<option value="${i}" ${i === ui.variant ? 'selected' : ''}>${esc(x.name || 'Variante ' + (i + 1))}</option>`).join('')}</select>` : `<span class="bvname">${esc(v.name || 'Build')}</span>`}${view.head?.season ? `<span class="muted">${esc(view.head.season.replace('Season', 'Stagione'))}</span>` : ''}<span class="sp"></span>${view.at ? `<span class="muted" style="font-size:11.5px">letta da D4Builds ${dateLbl(view.at)}</span>` : ''}</div>
+    <div class="bvar">${view.variants.length > 1 ? `<select id="bvsel">${view.variants.map((x, i) => `<option value="${i}" ${i === ui.variant ? 'selected' : ''}>${esc(x.name || 'Variante ' + (i + 1))}</option>`).join('')}</select>` : `<span class="bvname">${esc(v.name || 'Build')}</span>`}${view.head?.season ? `<span class="muted">${esc(view.head.season.replace('Season', 'Stagione'))}</span>` : ''}<span class="sp"></span>${view.at ? `<span class="muted" style="font-size:11.5px">letta da D4Builds il ${dateLbl(view.at)}</span>` : ''}</div>
     <div id="btab"></div>`;
   bindOpen();
-  $$('.btabs button', el).forEach(x => x.onclick = () => { ui.btab = x.dataset.t; $$('.btabs button', el).forEach(y => y.classList.toggle('on', y === x)); drawTab(); });
-  const vs = $('#bvsel'); if (vs) vs.onchange = () => { ui.variant = +vs.value; showBuild(b); };
+  $$('.btabs button', el).forEach(x => x.onclick = () => { ui.btab = x.dataset.t; $$('.btabs button', el).forEach(y => y.classList.toggle('on', y === x)); drawTab(); if (isSaved(b.url)) touchSaved(b.url, { tab: ui.btab }); });
+  const vs = $('#bvsel'); if (vs) vs.onchange = () => { ui.variant = +vs.value; if (isSaved(b.url)) touchSaved(b.url, { variant: ui.variant }); showBuild(b); };
   const drawTab = () => {
     const box = $('#btab');
     if (ui.btab === 'tree') { box.innerHTML = treeView(view, v.tree, 'skill'); bindViewer(box); return; }
@@ -953,7 +1019,7 @@ function collectTxt() {
       box.classList.remove('on');
       if (r.dataset.q) { S.ui.drop = { ...(S.ui.drop || {}), q: r.dataset.q, boss: '' }; location.hash = '#/drop'; if (S.page === 'drop') route(); }
       else if (r.dataset.boss) { S.ui.drop = { ...(S.ui.drop || {}), q: '', boss: r.dataset.boss }; location.hash = '#/drop'; if (S.page === 'drop') route(); }
-      else { setCls(r.dataset.bcls); S.ui.build = { ...(S.ui.build || {}), type: 'Tutte', src: 'all', sel: r.dataset.burl, variant: 0 }; location.hash = '#/build'; if (S.page === 'build') route(); }
+      else { setCls(r.dataset.bcls); const b = (B?.builds || []).find(x => x.url === r.dataset.burl); if (b) { const was = location.hash; openBuildPage(b); if (location.hash === was) route(); } }
       inp.value = '';
     });
   }

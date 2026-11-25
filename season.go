@@ -7,6 +7,7 @@ import (
 	"encoding/json"
 	"regexp"
 	"sort"
+	"strconv"
 	"strings"
 	"sync"
 )
@@ -286,6 +287,15 @@ func robMatch(rows []robRow, cls, title, url string) *robRow {
 	return best
 }
 
+// data dell'ultimo aggiornamento della build su D4Builds (letta dalla pagina)
+func d4bUpdated(s *seasonRaw, u string) int64 {
+	if d := s.D4bDetails[keyURL(u)]; d != nil {
+		n, _ := strconv.ParseInt(d.Updated, 10, 64)
+		return n
+	}
+	return 0
+}
+
 func buildView(s *seasonRaw) *SeasonView {
 	v := &SeasonView{Season: s.Season, Updated: s.Updated, PTR: s.Loot.PTR}
 	rob := s.Rob.Tier
@@ -309,7 +319,7 @@ func buildView(s *seasonRaw) *SeasonView {
 	}
 	seenD4 := map[string]bool{}
 	for _, d := range s.D4builds {
-		b := BuildEntry{Src: "D4Builds", Title: d.Name, Cls: d.Cls, Type: d.Type, URL: d.URL}
+		b := BuildEntry{Src: "D4Builds", Title: d.Name, Cls: d.Cls, Type: d.Type, URL: d.URL, Updated: d4bUpdated(s, d.URL)}
 		tierFor(&b)
 		seenD4[d.Slug] = true
 		v.Builds = append(v.Builds, b)
@@ -330,7 +340,7 @@ func buildView(s *seasonRaw) *SeasonView {
 				typ = "Leveling"
 			}
 			seenD4[slugOf(r.URL)] = true
-			v.Builds = append(v.Builds, BuildEntry{Src: "D4Builds", Title: r.Build, Cls: r.Cls, Type: typ, URL: r.URL, Author: "Rob2628", Tier: r.Tier, TierNote: r.TierNote, Info: r.Info, Rank: r.Rank})
+			v.Builds = append(v.Builds, BuildEntry{Src: "D4Builds", Title: r.Build, Cls: r.Cls, Type: typ, URL: r.URL, Author: "Rob2628", Tier: r.Tier, TierNote: r.TierNote, Info: r.Info, Rank: r.Rank, Updated: d4bUpdated(s, r.URL)})
 		}
 	}
 	v.Rob = s.Rob

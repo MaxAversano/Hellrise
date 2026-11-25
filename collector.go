@@ -15,6 +15,7 @@ import (
 	"net/url"
 	"os"
 	"path/filepath"
+	"strconv"
 	"strings"
 	"sync"
 	"time"
@@ -215,11 +216,17 @@ func collect() {
 		details := map[string]*PBuild{}
 		for _, b := range list {
 			setStep(fmt.Sprintf("Mobalytics · stagione %d", n), -1, -1)
+			upd := strconv.FormatInt(b.Updated, 10)
+			if old := serverDetail("moba", b.URL); old != nil && b.Updated > 0 && old.Updated == upd {
+				stepDone(true) // non è cambiata dall'ultima lettura: resta quella sul server
+				continue
+			}
 			mobaDetailCache.Lock()
 			delete(mobaDetailCache.m, b.URL)
 			mobaDetailCache.Unlock()
 			d, err := mobaBuildDetail(b.URL)
 			if err == nil {
+				d.Updated = upd
 				details[keyURL(b.URL)] = d
 			}
 			stepDone(err == nil)
@@ -237,10 +244,15 @@ func collect() {
 	}
 
 	// 3) dettagli delle build D4Builds (elenco del sito e build di Rob)
+	fidx := fullIndex()
 	for n, urls := range d4bURLs {
 		details := map[string]*PBuild{}
 		for _, u := range urls {
 			setStep(fmt.Sprintf("D4Builds · stagione %d", n), -1, -1)
+			if e, ok := fidx[hashURL(keyURL(u))]; ok && e.XV == d4bExtractVer && time.Since(time.Unix(e.At, 0)) < 20*time.Hour {
+				stepDone(true) // letta da poco: il server ce l'ha già
+				continue
+			}
 			var d *PBuild
 			t0 := time.Now()
 			f, err := d4bFullRead(u)
@@ -276,6 +288,21 @@ func collect() {
 	log.Printf("raccolta: finita, %d pagine lette su %d", collectState.Got, collectState.Total)
 	collectState.Unlock()
 	go remoteRefresh()
+}
+
+type fullIdxEntry struct {
+	At  int64  `json:"at"`
+	XV  int    `json:"xv"`
+	Upd string `json:"upd"`
+}
+
+// build D4Builds già lette e salvate sul server (con la data di lettura)
+func fullIndex() map[string]fullIdxEntry {
+	m := map[string]fullIdxEntry{}
+	if b, err := remoteGet("what=fullidx"); err == nil {
+		json.Unmarshal(b, &m)
+	}
+	return m
 }
 
 func uploadFull(u string, f *D4Full) error {
