@@ -95,6 +95,7 @@ var (
 	ovLocks           = map[string]rect{}
 	ovEye             rect
 	ovLabel           rect
+	ovTags            []rect
 )
 
 var (
@@ -132,6 +133,10 @@ func overlayParagon() (*PBuild, string) {
 		go func() {
 			var b *PBuild
 			var err error
+			// senza i dati di gioco le tavole restano vuote: si aspetta che siano caricati
+			for i := 0; i < 120 && getGD() == nil; i++ {
+				time.Sleep(time.Second)
+			}
 			if strings.HasPrefix(id, "d4b:") {
 				b, err = d4bParagonBuild(strings.TrimPrefix(id, "d4b:"))
 			} else {
@@ -281,7 +286,7 @@ func paintOverlay(hdc uintptr) {
 	if o.Timers.On {
 		hits["timers"] = drawTimers(mem, o, sc, k)
 	}
-	ovEye, ovLabel = rect{}, rect{}
+	ovEye, ovLabel, ovTags = rect{}, rect{}, ovTags[:0]
 	if o.Paragon.On {
 		r := drawParagon(mem, o, sc, k)
 		hits["paragon"] = r
@@ -345,6 +350,7 @@ func paintOverlay(hdc uintptr) {
 		}
 	}
 	ovDrawn = append(ovDrawn, ovLabel)
+	ovDrawn = append(ovDrawn, ovTags...)
 	ovDrawnMu.Unlock()
 	pBitBlt.Call(hdc, 0, 0, uintptr(ovW), uintptr(ovH), mem, 0, 0, srcCopy)
 	pSelectObject.Call(mem, old)
@@ -800,15 +806,47 @@ func drawParagonAligned(hdc uintptr, o OverlaySet, sc func(float64) int32, k flo
 	if t < 2 {
 		t = 2
 	}
-	for i := 0; i < len(cells); i++ {
-		if cells[i] == '0' || sel[i] != '1' {
+	frames := func(cells, sel string, w int, ox, oy float64) {
+		for i := 0; i < len(cells) && i < len(sel); i++ {
+			if cells[i] == '0' || sel[i] != '1' {
+				continue
+			}
+			x0 := int32(ox + float64(i%w)*cp)
+			y0 := int32(oy + float64(i/w)*cp)
+			x1 := int32(ox + float64(i%w+1)*cp)
+			y1 := int32(oy + float64(i/w+1)*cp)
+			if x1 < 0 || y1 < 0 || x0 > ovW || y0 > ovH {
+				continue
+			}
+			ovFrame(hdc, rect{x0 + 1, y0 + 1, x1 - 1, y1 - 1}, t, cellCol[cells[i]][1])
+		}
+	}
+	frames(cells, sel, w, det.X, det.Y)
+	// le altre tavole della build, attaccate a quella riconosciuta (ogni tavola è larga 21 caselle):
+	// così con lo zoom al minimo vedi tutto il paragon
+	anchor := cb.step.Boards[det.Board]
+	for i, bd := range cb.step.Boards {
+		if i == det.Board || bd.Width <= 0 {
 			continue
 		}
-		x0 := gx + int32(float64(i%w)*cp)
-		y0 := gy + int32(float64(i/w)*cp)
-		x1 := gx + int32(float64(i%w+1)*cp)
-		y1 := gy + int32(float64(i/w+1)*cp)
-		ovFrame(hdc, rect{x0 + 1, y0 + 1, x1 - 1, y1 - 1}, t, cellCol[cells[i]][1])
+		ox := det.X + float64((bd.X-anchor.X)*bd.Width)*cp
+		oy := det.Y + float64((bd.Y-anchor.Y)*bd.Width)*cp
+		side := float64(bd.Width) * cp
+		if ox+side < 0 || oy+side < 0 || ox > float64(ovW) || oy > float64(ovH) {
+			continue
+		}
+		frames(rotateGrid(bd.RawCells, bd.Width, bd.Rotation), rotateGrid(bd.RawSel, bd.Width, bd.Rotation), bd.Width, ox, oy)
+		tag := fmt.Sprintf("%d · %s", i+1, pick(bd.Name, bd.En))
+		if r := rotPhrase(bd.Rotation); bd.Rotation != 0 {
+			tag += " · " + r
+		}
+		tx, ty := int32(ox+cp*0.3), int32(oy+cp*0.3) // nell'angolo in alto a sinistra, dove la tavola è vuota
+		tr := rect{tx, ty, tx + sc(250), ty + sc(24)}
+		if tr.t > 0 && tr.b < ovH {
+			ovRound(hdc, tr, sc(10), cPanel, cBorder)
+			ovText(hdc, tag, tr, cInk, ovFont(int(11*k), true), dtCenter)
+			ovTags = append(ovTags, tr)
+		}
 	}
 	return rect{}
 }

@@ -370,6 +370,7 @@ func loadGameData() error {
 	gd.Unlock()
 	log.Printf("dati di gioco Maxroll %s: %d oggetti, %d aspetti, %d abilità", d.Version, len(d.Items), len(d.Aspects), len(d.Skills))
 	invalidateSeason(0)
+	go reloadOverlayParagon() // il paragon dell'overlay va riletto con i dati nuovi
 	return nil
 }
 
