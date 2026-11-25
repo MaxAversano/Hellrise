@@ -1,0 +1,38 @@
+<!DOCTYPE html>
+<html lang="it">
+<head>
+<meta charset="utf-8">
+<title>Hellrise</title>
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<link rel="icon" href="mark.png" type="image/png">
+<link rel="stylesheet" href="app.css">
+</head>
+<body>
+<div class="bg" aria-hidden="true"><i class="g1"></i><i class="g2"></i><i class="g3"></i><i class="g4"></i><div class="embers" id="embers"></div><div class="grain"></div></div>
+<header class="top">
+  <div class="brand"><img src="flame.svg" alt=""><span>Hellrise</span></div>
+  <div class="seasonpick" id="seasonpick"></div>
+  <label class="gsearch"><svg viewBox="0 0 24 24"><circle cx="11" cy="11" r="7"/><path d="M20 20l-4-4"/></svg><input id="gsearch" placeholder="Cerca un oggetto, un boss o una build…" autocomplete="off"><kbd>Ctrl K</kbd></label>
+  <div class="sp"></div>
+  <div class="nextev" id="nextev"></div>
+  <div class="winbtns"><button data-win="min" title="Riduci a icona"><svg viewBox="0 0 10 10"><path d="M1 5h8"/></svg></button><button data-win="max" title="Ingrandisci"><svg viewBox="0 0 10 10"><rect x="1.5" y="1.5" width="7" height="7" rx="1.5"/></svg></button><button data-win="close" class="cl" title="Chiudi"><svg viewBox="0 0 10 10"><path d="M2 2l6 6M8 2l-6 6"/></svg></button></div>
+</header>
+<div class="layout">
+  <nav class="side glass" id="side">
+    <a href="#/home" data-p="home"><svg viewBox="0 0 24 24"><path d="M3 11l9-7 9 7v9a1 1 0 0 1-1 1h-5v-6H9v6H4a1 1 0 0 1-1-1z"/></svg><span>Home</span></a>
+    <a href="#/build" data-p="build"><svg viewBox="0 0 24 24"><path d="M14.5 3.5l6 6-9.5 9.5H5v-6z"/><path d="M12 6l6 6"/></svg><span>Build</span></a>
+    <a href="#/drop" data-p="drop"><svg viewBox="0 0 24 24"><path d="M12 3l8 4v6c0 4.5-3.5 7.5-8 8.5-4.5-1-8-4-8-8.5V7z"/><path d="M9 12l2 2 4-4"/></svg><span>Chi droppa cosa</span></a>
+    <a href="#/eventi" data-p="eventi"><svg viewBox="0 0 24 24"><circle cx="12" cy="13" r="8"/><path d="M12 9v4l3 2M9 2h6"/></svg><span>Eventi e mappa</span></a>
+    <a href="#/patch" data-p="patch"><svg viewBox="0 0 24 24"><path d="M6 3h9l4 4v14H6z"/><path d="M14 3v5h5M9 13h7M9 17h5"/></svg><span>Patch</span></a>
+    <a href="#/overlay" data-p="overlay"><svg viewBox="0 0 24 24"><rect x="3" y="4" width="18" height="13" rx="2"/><path d="M8 21h8M12 17v4"/><rect x="12.5" y="7" width="5.5" height="4" rx="1"/></svg><span>Overlay</span></a>
+    <a href="#/macro" data-p="macro"><svg viewBox="0 0 24 24"><rect x="2.5" y="6" width="19" height="12" rx="2.5"/><path d="M6 10h1M10 10h1M14 10h1M18 10h0M7 14h10"/></svg><span>Macro</span></a>
+    <div class="sp"></div>
+    <a href="#/impostazioni" data-p="impostazioni"><svg viewBox="0 0 24 24"><circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.7 1.7 0 0 0 .3 1.8l.1.1a2 2 0 1 1-2.8 2.8l-.1-.1a1.7 1.7 0 0 0-1.8-.3 1.7 1.7 0 0 0-1 1.5V21a2 2 0 1 1-4 0v-.1a1.7 1.7 0 0 0-1.1-1.5 1.7 1.7 0 0 0-1.8.3l-.1.1a2 2 0 1 1-2.8-2.8l.1-.1a1.7 1.7 0 0 0 .3-1.8 1.7 1.7 0 0 0-1.5-1H3a2 2 0 1 1 0-4h.1a1.7 1.7 0 0 0 1.5-1.1 1.7 1.7 0 0 0-.3-1.8l-.1-.1a2 2 0 1 1 2.8-2.8l.1.1a1.7 1.7 0 0 0 1.8.3H9a1.7 1.7 0 0 0 1-1.5V3a2 2 0 1 1 4 0v.1a1.7 1.7 0 0 0 1 1.5 1.7 1.7 0 0 0 1.8-.3l.1-.1a2 2 0 1 1 2.8 2.8l-.1.1a1.7 1.7 0 0 0-.3 1.8V9a1.7 1.7 0 0 0 1.5 1H21a2 2 0 1 1 0 4h-.1a1.7 1.7 0 0 0-1.5 1z"/></svg><span>Impostazioni</span></a>
+  </nav>
+  <main id="main"></main>
+</div>
+<div class="toast" id="toast"></div>
+<div class="rz"><i data-rz="1" class="l"></i><i data-rz="2" class="r"></i><i data-rz="3" class="t"></i><i data-rz="6" class="b"></i><i data-rz="4" class="tl"></i><i data-rz="5" class="tr"></i><i data-rz="7" class="bl"></i><i data-rz="8" class="br"></i></div>
+<script src="app.js"></script>
+</body>
+</html>

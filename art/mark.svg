@@ -1,0 +1,23 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 256 256">
+  <defs>
+    <linearGradient id="fl" x1="0.2" y1="1" x2="0.6" y2="0">
+      <stop offset="0" stop-color="#ff3d1f"/>
+      <stop offset="0.55" stop-color="#ff7a2a"/>
+      <stop offset="1" stop-color="#ffd27a"/>
+    </linearGradient>
+    <radialGradient id="bg" cx="0.5" cy="0.75" r="0.75">
+      <stop offset="0" stop-color="#4a120a"/>
+      <stop offset="1" stop-color="#140707"/>
+    </radialGradient>
+    <linearGradient id="rim" x1="0" y1="0" x2="1" y2="1">
+      <stop offset="0" stop-color="#ffffff" stop-opacity=".55"/>
+      <stop offset=".5" stop-color="#ff7b3a" stop-opacity=".25"/>
+      <stop offset="1" stop-color="#ffffff" stop-opacity=".35"/>
+    </linearGradient>
+  </defs>
+  <rect x="8" y="8" width="240" height="240" rx="60" fill="url(#bg)"/>
+  <rect x="8" y="8" width="240" height="240" rx="60" fill="none" stroke="url(#rim)" stroke-width="5"/>
+  <g transform="translate(128 132) scale(.78) translate(-128 -128)">
+    <path fill-rule="evenodd" fill="url(#fl)" d="     M120 14     C 132 52, 150 70, 168 92     C 190 118, 204 146, 204 174     C 204 216, 170 244, 128 244     C 86 244, 52 216, 52 176     C 52 146, 68 122, 88 104     C 88 126, 96 142, 110 150     C 98 118, 100 82, 110 54     C 114 42, 118 28, 120 14 Z     M134 118     C 142 144, 162 158, 162 186     C 162 208, 147 222, 128 222     C 109 222, 96 209, 96 191     C 96 177, 103 167, 112 159     C 112 173, 118 181, 126 185     C 120 165, 124 140, 134 118 Z"/>
+  </g>
+</svg>
