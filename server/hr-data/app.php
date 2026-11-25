@@ -44,6 +44,27 @@ if (isset($_GET['up'])) {
     echo 'pubblicato';
     exit;
 }
+// dati raccolti dall'app di Max (siti che bloccano il server): ?k=TOKEN&upload=d4bDetails&season=15
+if (isset($_GET['upload'])) {
+    $ok = ['d4bDetails', 'mobaDetails', 'mobalytics', 'bossInfo'];
+    $key = (string)$_GET['upload'];
+    $n = (int)($_GET['season'] ?? 0);
+    if (!in_array($key, $ok, true) || $n < 1 || $n > 99) { http_response_code(400); exit('richiesta non valida'); }
+    $raw = file_get_contents('php://input');
+    if ($raw === false || strlen($raw) > 8 * 1048576) { http_response_code(413); exit('troppo grande'); }
+    $data = json_decode($raw, true);
+    if (!is_array($data)) { http_response_code(400); exit('JSON non valido'); }
+    $GLOBALS['STATE'] = load_json('state.json', ['live' => 0]);
+    if (substr($key, -7) === 'Details') { // si uniscono a quelli già raccolti
+        $cur = load_json(season_file($n), [])[$key] ?? [];
+        if (!is_array($cur)) $cur = [];
+        foreach ($data as $u => $b) $cur[$u] = $b;
+        $data = $cur;
+    }
+    season_put($n, $key, $key === 'mobalytics' ? array_values($data) : ($data ?: new stdClass()));
+    echo 'ok';
+    exit;
+}
 if (isset($_GET['put'])) {
     $ok = ['app.php', 'data.php', 'lib.php', 'run.php', 'ping.php', 'index.php'];
     $name = (string)$_GET['put'];

@@ -272,22 +272,13 @@ func mobaRefresh() {
 	invalidateSeason(0)
 }
 
-func mobaLoop() {
+// all'avvio: l'ultima raccolta Mobalytics fatta su questo PC
+func mobaLoad() {
 	var c mobaCache
 	readJSON(cacheFile("mobalytics.json"), &c)
 	moba.Lock()
 	moba.c = c
 	moba.Unlock()
-	time.Sleep(8 * time.Second)
-	for {
-		moba.Lock()
-		age := time.Since(time.Unix(moba.c.At, 0))
-		moba.Unlock()
-		if age > 3*time.Hour {
-			mobaRefresh()
-		}
-		time.Sleep(10 * time.Minute)
-	}
 }
 
 func mobaSnapshot() mobaCache {

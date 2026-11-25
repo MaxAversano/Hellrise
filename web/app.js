@@ -294,11 +294,13 @@ async function showBuild(b) {
   bindOpen();
   try {
     if (b.profile) p = await getPlanner(b.profile);
-    else if (b.src === 'Mobalytics') p = await (plannerCache['m:' + b.url] ||= api('/api/mobabuild?u=' + encodeURIComponent(b.url)).catch(e => { delete plannerCache['m:' + b.url]; throw e; }));
+    else if (b.src === 'Mobalytics') {
+      try { p = await (plannerCache['m:' + b.url] ||= api('/api/mobabuild?u=' + encodeURIComponent(b.url)).catch(e => { delete plannerCache['m:' + b.url]; throw e; })); }
+      catch (e) { const sim = similarMaxroll(b); if (sim) { p = await getPlanner(sim.profile); note = `${esc(e.message)}. Intanto qui sotto vedi la guida Maxroll più simile, <b>${esc(sim.title)}</b>.`; } else throw e; }
+    }
     else if (b.src === 'D4Builds') {
-      el.innerHTML = head + `<div class="robinfo" style="background:rgba(255,190,90,.06)">Leggo la pagina di D4Builds… la prima volta ci mette qualche secondo.</div><div class="skel" style="height:220px;margin-top:12px"></div>`; bindOpen();
       try { p = await (plannerCache['d:' + b.url] ||= api('/api/d4bbuild?u=' + encodeURIComponent(b.url)).catch(e => { delete plannerCache['d:' + b.url]; throw e; })); }
-      catch (e) { const sim = similarMaxroll(b); if (sim) { p = await getPlanner(sim.profile); note = `Non sono riuscito a leggere la pagina di D4Builds (${esc(e.message)}): qui sotto vedi la guida Maxroll più simile, <b>${esc(sim.title)}</b>.`; } else throw e; }
+      catch (e) { const sim = similarMaxroll(b); if (sim) { p = await getPlanner(sim.profile); note = `${esc(e.message)}. Intanto qui sotto vedi la guida Maxroll più simile, <b>${esc(sim.title)}</b>.`; } else throw e; }
     }
   } catch (e) { note = 'Dettagli non disponibili: ' + esc(e.message); }
   if (!p || !p.variants?.length) {
@@ -666,7 +668,8 @@ PAGES.impostazioni = async main => {
         <label class="field"><span>Indirizzo</span><input class="inp" data-k="remoteUrl" value="${esc(s.remoteUrl || '')}"></label>
         <label class="field"><span>Codice del server (lo stesso di BetterStomp)</span><input class="inp" type="password" data-k="remoteToken" value="${esc(s.remoteToken || '')}"></label>
         <div id="sstat"></div>
-        <div class="row" style="gap:8px"><button class="btn" id="srefresh">${IC.refresh} Aggiorna ora</button></div>
+        <div class="row" style="gap:8px"><button class="btn" id="srefresh">${IC.refresh} Aggiorna ora</button>${S.st.collector?.enabled ? `<button class="btn" id="scollect">Raccogli D4Builds e Mobalytics</button>` : ''}</div>
+        ${S.st.collector?.enabled ? `<div class="muted" style="font-size:12.5px" id="scol">${collectTxt()}</div>` : ''}
       </div>
       <div class="glass card"><h2>Aspetto</h2>
         ${tg('blur', 'Effetto vetro', 'Sfocatura dei pannelli (disattiva se il PC rallenta)')}
@@ -688,8 +691,16 @@ PAGES.impostazioni = async main => {
     save({ [k]: inp.type === 'checkbox' ? inp.checked : (inp.type === 'number' ? +inp.value : inp.value.trim()) });
   });
   $$('[data-acc]', main).forEach(b => b.onclick = () => { $$('[data-acc]').forEach(x => x.classList.toggle('on', x === b)); save({ accent: b.dataset.acc }); });
+  $('#scollect')?.addEventListener('click', async () => { try { await fetch('/api/collect'); toast('Raccolta avviata: va avanti in sottofondo'); } catch { } });
+  const colT = setInterval(() => { const el = $('#scol'); if (!el) return clearInterval(colT); el.textContent = collectTxt(); }, 2000);
   $('#srefresh').onclick = async () => { const b = $('#srefresh'); b.disabled = true; try { await api('/api/refresh'); S.builds = {}; S.loot = {}; S.st = await api('/api/state'); renderSeasonPick(); toast('Dati aggiornati'); } catch (e) { toast(e.message); } b.disabled = false; renderDataStatus($('#sstat')); };
 };
+
+function collectTxt() {
+  const c = S.st.collector || {};
+  if (c.running) return `Raccolta in corso dal tuo PC · ${c.step || ''}${c.total ? ` (${c.done}/${c.total})` : ''}. Va avanti anche a finestra chiusa.`;
+  return `Questo PC legge D4Builds e Mobalytics (che bloccano il server) e li carica sul server ogni 6 ore${c.at ? ' · ultima raccolta ' + new Date(c.at * 1000).toLocaleString('it-IT', { day: 'numeric', month: 'short', hour: '2-digit', minute: '2-digit' }) : ''}.`;
+}
 
 // ---------------------------------------------------------------- ricerca globale
 (() => {

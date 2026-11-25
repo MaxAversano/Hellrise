@@ -85,7 +85,9 @@ type seasonRaw struct {
 			Lines []string `json:"lines"`
 		} `json:"bosses"`
 	} `json:"bossInfo"`
-	Updated map[string]int64 `json:"updated"`
+	D4bDetails  map[string]*PBuild `json:"d4bDetails"`
+	MobaDetails map[string]*PBuild `json:"mobaDetails"`
+	Updated     map[string]int64   `json:"updated"`
 }
 
 type BuildEntry struct {
@@ -144,6 +146,9 @@ type SeasonView struct {
 	LootSrc []string         `json:"lootSrc"`
 	PTR     bool             `json:"ptr"`
 	Updated map[string]int64 `json:"updated"`
+
+	D4bDetails  map[string]*PBuild `json:"-"`
+	MobaDetails map[string]*PBuild `json:"-"`
 }
 
 var views struct {
@@ -219,6 +224,7 @@ func seasonView(n int) *SeasonView {
 		}
 	}
 	v := buildView(&s)
+	v.D4bDetails, v.MobaDetails = s.D4bDetails, s.MobaDetails
 	if prevLoot {
 		v.LootSrc = append([]string{"stagione " + itoa(n-1) + " (la nuova non ha ancora tabelle)"}, v.LootSrc...)
 	}

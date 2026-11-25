@@ -88,7 +88,8 @@ func main() {
 	go startTrayThread()
 	go remoteLoop()
 	go gameDataLoop()
-	go mobaLoop()
+	go mobaLoad()
+	go collectLoop()
 	go eventNotifyLoop()
 	go localUpdateLoop()
 	go serverSyncLoop()
@@ -110,6 +111,9 @@ func main() {
 		lp := lastPing.Load()
 		idle := lp == 0 && time.Since(start) > 3*time.Minute || lp != 0 && time.Since(time.Unix(lp, 0)) > 20*time.Second
 		if !idle || getSettings().Autostart || getSettings().KeepInTray {
+			continue
+		}
+		if collectorInfo().(map[string]any)["running"] == true { // finisce la raccolta in corso
 			continue
 		}
 		if getSettings().Overlay.Enabled && diabloRunning() { // l'overlay resta attivo finché giochi

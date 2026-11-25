@@ -40,7 +40,17 @@ func setupAPI(mux *http.ServeMux) {
 			"d4p":       map[string]any{"path": findD4Pressure(), "running": d4pressureRunning()},
 			"classesIt": classesIt(),
 			"diablo":    diabloRunning(),
+			"collector": collectorInfo(),
 		})
+	})
+
+	mux.HandleFunc("/api/collect", func(w http.ResponseWriter, r *http.Request) {
+		if !isCollector() {
+			jsonErr(w, 400, "la raccolta si fa solo dal PC con la cartella del server")
+			return
+		}
+		go collect()
+		w.WriteHeader(204)
 	})
 
 	mux.HandleFunc("/api/refresh", func(w http.ResponseWriter, r *http.Request) {
@@ -71,7 +81,16 @@ func setupAPI(mux *http.ServeMux) {
 	})
 
 	mux.HandleFunc("/api/mobabuild", func(w http.ResponseWriter, r *http.Request) {
-		b, err := mobaBuildDetail(r.URL.Query().Get("u"))
+		u := r.URL.Query().Get("u")
+		if b := serverDetail("moba", u); b != nil {
+			jsonOut(w, b)
+			return
+		}
+		if !isCollector() {
+			jsonErr(w, 404, "build non ancora raccolta: arriverà con il prossimo aggiornamento dei dati")
+			return
+		}
+		b, err := mobaBuildDetail(u)
 		if err != nil {
 			jsonErr(w, 502, "Mobalytics: "+err.Error())
 			return
@@ -80,7 +99,16 @@ func setupAPI(mux *http.ServeMux) {
 	})
 
 	mux.HandleFunc("/api/d4bbuild", func(w http.ResponseWriter, r *http.Request) {
-		b, err := d4bBuildDetail(r.URL.Query().Get("u"))
+		u := r.URL.Query().Get("u")
+		if b := serverDetail("d4b", u); b != nil {
+			jsonOut(w, b)
+			return
+		}
+		if !isCollector() {
+			jsonErr(w, 404, "build non ancora raccolta: arriverà con il prossimo aggiornamento dei dati")
+			return
+		}
+		b, err := d4bBuildDetail(u)
 		if err != nil {
 			jsonErr(w, 502, "D4Builds: "+err.Error())
 			return
