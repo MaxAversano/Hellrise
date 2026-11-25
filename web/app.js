@@ -503,8 +503,7 @@ async function showBuild(b) {
     const box = $('#btab');
     if (ui.btab === 'tree') { box.innerHTML = treeView(view, v.tree, 'skill'); bindViewer(box); return; }
     if (ui.btab === 'paragon') {
-      box.innerHTML = v.paragon ? `<div class="row" style="margin-bottom:10px"><span class="sp"></span><button class="btn" id="toov">Paragon nell'overlay in gioco</button></div>` + paragonView(view, v.paragon) : mxParagonHTML(v);
-      if (v.paragon) { bindViewer(box); $('#toov', box).onclick = () => paragonToOverlay('d4b:' + keyU(b.url) + '/', b.title, ui.variant || 0); } else bindMxParagon(box, view, v, b);
+      parView(box, view, v, b);
       return;
     }
     if (ui.btab === 'merc') { box.innerHTML = mercView(view, v.merc); return; }
@@ -629,15 +628,117 @@ function treeView(view, t, kind) {
   return `<div class="vwrap"><div class="viewer" data-w="${W}" data-h="${H}" data-min="${zmin}" data-fx="${fx}" data-fy="${fy}"><div class="vin" style="width:${W}px;height:${H}px"><svg class="vlines" width="${W}" height="${H}">${lines}</svg>${nodes}</div></div><button class="btn sm vfit">Adatta alla finestra</button>${t.remaining && t.remaining !== '0' ? `<span class="vrem">Punti rimasti: ${esc(t.remaining)}</span>` : ''}</div>
     <div class="bsec"><div class="lbl">${kind === 'war' ? 'Nodi scelti' : 'Abilità e passive scelte'} · ${picked.length}</div><div class="chips">${picked.map(n => `<div class="chipi ${n[2] === 'l' ? 'big' : ''}">${icoImg(n[4], '', n[3])}<span>${esc(TN(view, n[3], ''))}</span><em>${esc(n[6])}</em></div>`).join('')}</div></div>`;
 }
+// ---------------------------------------------------------------- paragon (uguale per D4Builds, Maxroll e Mobalytics)
+let PINFO = null;
+const pinfo = () => PINFO ||= fetch('/api/pinfo').then(r => r.json()).catch(() => ({ glyphs: {}, nodes: {}, board: {} }));
+const RARN = { 1: 'Common', 2: 'Magic', 3: 'Rare', 4: 'Legendary', 5: 'Gate', 6: 'Glyph', 7: 'Start' };
+const RARIT = { Common: 'Normale', Magic: 'Magica', Rare: 'Rara', Legendary: 'Leggendaria', Glyph: 'Incavo per glifo', 'Paragon Glyph': 'Incavo per glifo', Gate: 'Porta', Start: 'Inizio', 'Paragon Starting': 'Inizio' };
+const PSTAT = { Str: 'Forza', Dex: 'Destrezza', Int: 'Intelligenza', Will: 'Volontà', Damage: 'Danni', DamageToElite: 'Danni agli élite', HPPercent: 'Vita massima', Armor: 'Armatura', ResistanceAll: 'Resistenza a tutti gli elementi', Fury: 'Furia massima', FuryOnKill: 'Furia per uccisione', HealingBonus: 'Guarigione ricevuta', DamageWhileFortified: 'Danni mentre sei fortificato', CriticalDamage: 'Danni dei colpi critici', BerserkDamage: 'Danni in berserk', HPRegen: 'Rigenerazione della vita', MoveSpeedEliteKill: 'Velocità dopo aver ucciso un élite', AttackSpeed: 'Velocità d\'attacco', DamageBleed: 'Danni da sanguinamento', DamageToVulnerable: 'Danni ai vulnerabili', CCDurationReduction: 'Durata dei controlli ridotta', Dodge: 'Probabilità di schivata', Mana: 'Mana massimo', Energy: 'Energia massima', Essence: 'Essenza massima', Spirit: 'Spirito massimo', DamageReduction: 'Riduzione dei danni', Thorns: 'Spine', Barrier: 'Barriera', Overpower: 'Danni travolgenti', DamagePoison: 'Danni da veleno', DamageFire: 'Danni da fuoco', DamageCold: 'Danni da freddo', DamageLightning: 'Danni da fulmine', DamageShadow: 'Danni d\'ombra', DamagePhysical: 'Danni fisici', CooldownReduction: 'Riduzione del tempo di recupero' };
+const pstat = k => PSTAT[k] || (k || '').replace(/([a-z])([A-Z])/g, '$1 $2');
+// tutte le fonti nello stesso formato: fasi → tavole con caselle [riga, colonna, presa, chiave, icona, rarità] non ruotate
+function parNorm(v) {
+  if (v.paragon?.boards?.length) return { points: v.paragon.points, glyphIcons: Object.fromEntries((v.paragon.glyphs || []).map(g => [g.n, g.i])), steps: [{ name: '', boards: v.paragon.boards.map(b => ({ n: b.n, g: b.g, rot: b.r || 0, x: b.x, y: b.y, w: 21, tiles: b.tiles || [], stats: b.s })) }] };
+  if (v.mxParagon?.length) return { steps: v.mxParagon.map(st => ({ name: st.name, boards: st.boards.map(bd => ({ n: bd.en || bd.name, g: bd.glyphEn || bd.glyph, lvl: bd.glyphLvl, rot: (bd.rotation || 0) * 90, x: Math.abs(bd.x) < 60 ? bd.x * 1260 : bd.x, y: Math.abs(bd.y) < 60 ? bd.y * 1260 : bd.y, w: bd.width, legend: bd.legend, tiles: [...(bd.rawCells || '')].map((ch, i) => ch === '0' ? null : [Math.floor(i / bd.width), i % bd.width, bd.rawSel?.[i] === '1' ? 1 : 0, bd.keys?.[i] || '', '', RARN[ch]]).filter(Boolean) })) })) };
+  return null;
+}
+function tileIcon(t, b, P) {
+  const [, , , key, ic, rar] = t;
+  if (ic) return ic;
+  const m = /^Generic_(?:Normal|Magic|Rare)_(\w+)$/.exec(key || '');
+  if (m) return '3/' + m[1] + '.png';
+  if (/Legendary/.test(key || '') || rar === 'Legendary') { const c = (key || '').split('_')[0] || S.ui.build.cls || ''; return c ? '3/' + c[0].toUpperCase() + c.slice(1) + '.png' : ''; }
+  return '';
+}
+function tileInfo(t, b, view, PI) {
+  const [, , on, key, , rar] = t;
+  const r = rar === 'Paragon Glyph' ? 'Glyph' : rar;
+  let name = '', desc = '';
+  if (r === 'Legendary') {
+    const nk = PI.board[(b.n || '').toLowerCase()] || (PI.nodes[key] ? key : '');
+    const nd = PI.nodes[nk];
+    if (nd) { name = lang() === 'en' ? nd.en : nd.it; desc = lang() === 'en' ? nd.descEn : nd.descIt; }
+    else name = TN(view, b.n, '');
+  } else if (r === 'Glyph') name = b.g ? 'Glifo: ' + TN(view, b.g, '') : 'Incavo per glifo (vuoto)';
+  else if (r === 'Gate') name = 'Porta verso un\'altra tavola';
+  else if (/Start/.test(r || '')) name = 'Nodo di partenza';
+  else if (PI.nodes[key]) name = lang() === 'en' ? PI.nodes[key].en : PI.nodes[key].it;
+  else { const m = /^Generic_(?:Normal|Magic|Rare)_(\w+)$/.exec(key || ''); name = pstat(m ? m[1] : key) || RARIT[r] || ''; }
+  return { name, desc, rar: RARIT[r] || r || '', on };
+}
+function glyphCard(view, b, PI, P) {
+  if (!b.g) return `<div class="pcard"><div class="lbl">Glifo</div><div class="muted">Nessun glifo su questa tavola.</div></div>`;
+  const gi = PI.glyphs[(b.g || '').toLowerCase()] || Object.values(PI.glyphs).find(x => x.it === b.g);
+  const en = lang() === 'en';
+  const RK = { '-1': 'Bonus extra se il requisito è soddisfatto', 0: 'Bonus a portata', 1: 'Dal livello 15', 2: 'Dal livello 46 (leggendario)' };
+  return `<div class="pcard glyph"><div class="lbl">Glifo</div><div class="gh">${P?.glyphIcons?.[b.g] ? `<img class="gico" src="${esc(IMG(P.glyphIcons[b.g]))}" alt="">` : '<i class="gico"></i>'}<div><b>${esc(gi ? (en ? gi.en : gi.it) : TN(view, b.g, ''))}</b>${b.lvl ? `<small>livello ${b.lvl}</small>` : ''}</div></div>
+    ${gi ? `<div class="greq">Raggio 3 (4 dal livello 15)${gi.reqIt ? ` · requisito: <b>${esc(en ? gi.reqEn : gi.reqIt)}</b> a portata` : ''}</div>
+    ${gi.bonus.map(x => `<div class="gb r${x.rank}"><small>${RK[x.rank] ?? ''}</small>${esc(en ? x.en : x.it)}</div>`).join('')}
+    <div class="muted" style="font-size:11px;margin-top:6px">I valori con la freccia vanno dal livello 1 al livello 100 del glifo.</div>` : '<div class="muted">Dettagli del glifo non trovati nei dati di gioco.</div>'}</div>`;
+}
+function boardGrid(view, P, b, PI, k) {
+  const w = b.w || 21, q = ((Math.round((b.rot || 0) / 90) % 4) + 4) % 4;
+  const R = (r, c) => q === 1 ? [c, w - 1 - r] : q === 2 ? [w - 1 - r, w - 1 - c] : q === 3 ? [w - 1 - c, r] : [r, c];
+  const tiles = b.tiles.map((t, i) => {
+    const [r, c] = R(t[0], t[1]), rar = t[5] === 'Paragon Glyph' ? 'Glyph' : (/Start/.test(t[5] || '') ? 'Start' : t[5]);
+    let ic = tileIcon(t, b, P);
+    let src = '';
+    if (rar === 'Glyph') src = P.glyphIcons?.[b.g] || '';
+    else if (ic) src = SA + 'Paragon/' + (t[2] && !/_active\.png$/.test(ic) ? ic.replace(/\.png$/, '_active.png') : ic);
+    return `<div class="pt2 ${t[2] ? 'on' : ''} k-${(rar || 'Common').toLowerCase()}" data-i="${i}" style="left:${c / w * 100}%;top:${r / w * 100}%;width:${100 / w}%;height:${100 / w}%">${src ? `<img src="${esc(IMG(src))}" alt="" loading="lazy" onerror="this.remove()">` : ''}</div>`;
+  }).join('');
+  const on = b.tiles.filter(t => t[2]).length;
+  const legT = b.tiles.find(t => (t[5] === 'Legendary'));
+  const leg = legT ? tileInfo(legT, b, view, PI) : null;
+  return `<div class="pmain"><div class="pgwrap"><div class="pgrid" id="pgrid">${tiles}</div><div class="plegend2">${[['Normale', 'common'], ['Magica', 'magic'], ['Rara', 'rare'], ['Leggendaria', 'legendary'], ['Glifo', 'glyph'], ['Porta', 'gate']].map(([l, c]) => `<span><i class="pt2 on k-${c}"></i>${l}</span>`).join('')}<span><i class="pt2 k-common"></i>non presa</span></div></div>
+    <aside class="pside">
+      <div class="pcard"><div class="lbl">Tavola ${k + 1}</div><b class="pbn">${esc(TN(view, b.n, ''))}</b><div class="muted" style="font-size:12px">${on} punti${b.rot ? ` · ruotata di ${b.rot}°` : ''}</div>${b.stats?.length ? `<div class="pstats">${b.stats.map(x => { const [a, n] = x.split(' '); return `<span><b>${esc(n || '')}</b> ${esc(pstat(a))}</span>`; }).join('')}</div>` : ''}</div>
+      ${leg ? `<div class="pcard leg"><div class="lbl">Nodo leggendario${legT[2] ? '' : ' · non preso'}</div><b>${esc(leg.name)}</b>${leg.desc ? `<p>${esc(leg.desc)}</p>` : ''}</div>` : ''}
+      ${glyphCard(view, b, PI, P)}
+      <div class="pcard" id="phover"><div class="lbl">Casella</div><div class="muted" style="font-size:12px">Passa il mouse su una casella per vederne i dettagli.</div></div>
+    </aside></div>`;
+}
+async function parView(box, view, v, b) {
+  const ui = S.ui.build;
+  const P = parNorm(v);
+  if (!P) { box.innerHTML = '<div class="muted">Paragon non disponibile.</div>'; return; }
+  box.innerHTML = '<div class="skel" style="height:420px"></div>';
+  const PI = await pinfo();
+  if (!P.steps[ui.pstep || 0]) ui.pstep = 0;
+  const st = P.steps[ui.pstep || 0];
+  if (ui.pboard == null || ui.pboard >= st.boards.length) ui.pboard = 0;
+  const strip = `<div class="pstrip"><button data-k="-1" class="${ui.pboard === -1 ? 'on' : ''}"><span class="n">⊞</span><div><b>Panoramica</b><small>${st.boards.length} tavole</small></div></button>${st.boards.map((bd, i) => `<button data-k="${i}" class="${ui.pboard === i ? 'on' : ''}"><span class="n">${i + 1}</span><div><b>${esc(TN(view, bd.n, ''))}</b><small>${bd.g ? esc(TN(view, bd.g, '')) : 'senza glifo'}</small></div></button>`).join('')}</div>`;
+  const steps = P.steps.length > 1 ? `<div class="seg" id="pstep">${P.steps.map((x, i) => `<button data-s="${i}" class="${i === (ui.pstep || 0) ? 'on' : ''}">${esc(x.name || 'Fase ' + (i + 1))}</button>`).join('')}</div>` : '';
+  const total = P.points || st.boards.reduce((a, bd) => a + bd.tiles.filter(t => t[2]).length, 0);
+  box.innerHTML = `<div class="row wrap" style="margin-bottom:10px;gap:8px">${steps}<span class="muted" style="font-size:12.5px">${total} punti paragon</span><span class="sp"></span><button class="btn" id="toov">Paragon nell'overlay in gioco</button></div>${strip}<div id="pbody"></div>`;
+  const body = $('#pbody', box);
+  if (ui.pboard === -1) { body.innerHTML = paragonView(view, { points: P.points, boards: st.boards.map(bd => ({ ...bd, r: bd.rot })) }, P); bindViewer(body);
+    let down = null;
+    body.addEventListener('pointerdown', e => { down = [e.clientX, e.clientY]; });
+    $$('.pbd', body).forEach(x => x.addEventListener('click', e => { if (down && Math.hypot(e.clientX - down[0], e.clientY - down[1]) > 6) return; ui.pboard = +x.dataset.k; parView(box, view, v, b); }));
+  }
+  else {
+    const bd = st.boards[ui.pboard];
+    body.innerHTML = boardGrid(view, P, bd, PI, ui.pboard);
+    const hov = $('#phover', body);
+    $('#pgrid', body).addEventListener('mouseover', e => {
+      const el = e.target.closest('.pt2'); if (!el) return;
+      const ti = tileInfo(bd.tiles[+el.dataset.i], bd, view, PI);
+      hov.innerHTML = `<div class="lbl">Casella · ${esc(ti.rar)}${ti.on ? ' · <span style="color:var(--acc)">presa</span>' : ''}</div><b>${esc(ti.name)}</b>${ti.desc ? `<p>${esc(ti.desc)}</p>` : ''}`;
+    });
+  }
+  $$('.pstrip button', box).forEach(x => x.onclick = () => { ui.pboard = +x.dataset.k; parView(box, view, v, b); });
+  $$('#pstep button', box).forEach(x => x.onclick = () => { ui.pstep = +x.dataset.s; parView(box, view, v, b); });
+  $('#toov', box).onclick = () => v.paragon ? paragonToOverlay('d4b:' + keyU(b.url) + '/', b.title, ui.variant || 0) : paragonToOverlay(view.plannerId, b.title, ui.variant, ui.pstep || 0);
+}
 const PTILE = 60;
 const PRAR = { Common: '#5b534e', Magic: '#4f8bff', Rare: '#ffd24a', Legendary: '#ff7a2a', Glyph: '#c07bff', Gate: '#ddd' };
-function paragonView(view, p) {
+function paragonView(view, p, P) {
   const bs = p.boards;
   const pts = [];
   bs.forEach(b => { pts.push([b.x, b.y], [b.x + 21 * PTILE, b.y + 21 * PTILE]); });
   const minX = Math.min(...pts.map(q => q[0])) - 40, minY = Math.min(...pts.map(q => q[1])) - 70, maxX = Math.max(...pts.map(q => q[0])) + 40, maxY = Math.max(...pts.map(q => q[1])) + 40;
   const W = maxX - minX, H = maxY - minY;
-  const boards = bs.map((b, bi) => `<div class="pbd" style="left:${b.x - minX}px;top:${b.y - minY}px;transform:rotate(${b.r}deg)">${b.tiles.map(t => { const [r, c, a, alt, ic, rar] = t; return `<div class="ptile ${a ? 'on' : ''}" style="left:${c * PTILE}px;top:${r * PTILE}px;--rc:${PRAR[rar] || '#555'};transform:rotate(${-b.r}deg)" title="${esc(alt)}${rar ? ' · ' + esc(rar) : ''}">${ic ? `<img src="${esc(IMG(SA + 'Paragon/' + (a && !/_active\.png$/.test(ic) ? ic.replace(/\.png$/, '_active.png') : ic)))}" alt="">` : ''}</div>`; }).join('')}</div><div class="pbl" style="left:${b.x - minX + 21 * PTILE / 2}px;top:${b.y - minY - 4}px"><b>${bi + 1}</b> ${esc(TN(view, b.n, ''))}${b.g ? ` <em>(${esc(TN(view, b.g, ''))})</em>` : ''}</div>`).join('');
+  const boards = bs.map((b, bi) => `<div class="pbd" data-k="${bi}" title="Apri la tavola ${bi + 1}" style="left:${b.x - minX}px;top:${b.y - minY}px;transform:rotate(${b.r}deg)">${b.tiles.map(t => { const [r, c, a, alt, ic, rar] = t; return `<div class="ptile ${a ? 'on' : ''}" style="left:${c * PTILE}px;top:${r * PTILE}px;--rc:${PRAR[rar] || '#555'};transform:rotate(${-b.r}deg)" title="${esc(alt)}${rar ? ' · ' + esc(rar) : ''}">${ic ? `<img src="${esc(IMG(SA + 'Paragon/' + (a && !/_active\.png$/.test(ic) ? ic.replace(/\.png$/, '_active.png') : ic)))}" alt="">` : ''}</div>`; }).join('')}</div><div class="pbl" style="left:${b.x - minX + 21 * PTILE / 2}px;top:${b.y - minY - 4}px"><b>${bi + 1}</b> ${esc(TN(view, b.n, ''))}${b.g ? ` <em>(${esc(TN(view, b.g, ''))})</em>` : ''}</div>`).join('');
   return `<div class="vwrap"><div class="viewer tall" data-w="${W}" data-h="${H}" data-min="0.16" data-fx="${bs[0].x - minX + 630}" data-fy="${bs[0].y - minY + 630}"><div class="vin" style="width:${W}px;height:${H}px">${boards}</div></div><button class="btn sm vfit">Adatta alla finestra</button>${p.points ? `<span class="vrem">Punti: ${esc(p.points)}</span>` : ''}</div>
     <div class="bsec"><div class="lbl">Tavole e glifi</div><div class="pblist">${bs.map((b, i) => `<div class="pbi"><span class="n">${i + 1}</span><div><b>${esc(TN(view, b.n, ''))}</b>${b.g ? `<small>Glifo: ${esc(TN(view, b.g, ''))}</small>` : ''}${b.s?.length ? `<small class="muted">${esc(b.s.join(' · '))}</small>` : ''}${b.r ? `<small class="muted">Rotazione ${b.r}°</small>` : ''}</div></div>`).join('')}</div></div>`;
 }

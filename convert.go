@@ -100,6 +100,7 @@ func gameText(s string) string {
 	s = strings.ReplaceAll(s, "[x]", "x")
 	s = strings.ReplaceAll(s, "[ms]", "")
 	s = strings.ReplaceAll(s, "[fs]", "")
+	s = strings.ReplaceAll(s, "[+]", "")
 	return strings.TrimSpace(reSpaces.ReplaceAllString(s, " "))
 }
 
@@ -513,7 +514,7 @@ func (fb *fullBuilder) finish(f *D4Full) {
 		}
 	}
 	f.Tr = fb.tr
-	f.OK, f.XV = 1, d4bExtractVer
+	f.OK, f.XV = 1, convXV
 }
 
 // ---------------------------------------------------------------- Maxroll
@@ -1357,13 +1358,37 @@ func mobaParagon(fb *fullBuilder, gdd *gameData, cls string, p map[string]any) m
 		}
 		var tiles []any
 		rar := map[byte]string{1: "Common", 2: "Magic", 3: "Rare", 4: "Legendary", 5: "Gate", 6: "Glyph", 7: "Common"}
+		rot, _ := m["rotation"].(float64)
+		// Mobalytics non dice se le coordinate partono da 0 o da 1, né se sono già ruotate:
+		// si sceglie la lettura in cui cadono più nodi presi su caselle che esistono
+		q := ((int(rot)/90)%4 + 4) % 4
+		mapAt := func(r, c, off, rq int) int {
+			for k := 0; k < rq; k++ { // posizione della casella dopo la rotazione oraria della tavola
+				r, c = c, w-1-r
+			}
+			return (r+off)*1000 + (c + off)
+		}
+		bestOff, bestRq, bestHit := 0, 0, -1
+		for _, off := range []int{0, 1} {
+			for _, rq := range []int{0, q} {
+				hit := 0
+				for i, c := range def.Cells {
+					if c != 0 && active[bslug][mapAt(i/w, i%w, off, rq)] {
+						hit++
+					}
+				}
+				if hit > bestHit {
+					bestOff, bestRq, bestHit = off, rq, hit
+				}
+			}
+		}
 		for i, c := range def.Cells {
 			if c == 0 {
 				continue
 			}
 			r, col := i/w, i%w
 			on := 0
-			if active[bslug][r*1000+col] {
+			if active[bslug][mapAt(r, col, bestOff, bestRq)] {
 				on = 1
 			}
 			name := ""
@@ -1382,7 +1407,6 @@ func mobaParagon(fb *fullBuilder, gdd *gameData, cls string, p map[string]any) m
 		}
 		bx, _ := m["x"].(float64)
 		by, _ := m["y"].(float64)
-		rot, _ := m["rotation"].(float64)
 		boards = append(boards, map[string]any{"n": fb.name(def.En, def.It), "g": glyph, "x": int(bx) * 1258, "y": int(by) * 1258, "r": int(rot), "tiles": tiles})
 	}
 	if len(boards) == 0 {
@@ -1392,13 +1416,28 @@ func mobaParagon(fb *fullBuilder, gdd *gameData, cls string, p map[string]any) m
 }
 
 // build completa di qualunque fonte: prima dal server, poi (se si può) letta e convertita qui
+// versione della conversione Maxroll/Mobalytics → formato D4Builds: va alzata quando cambia,
+// così il raccoglitore le rifà e le app non usano le copie vecchie
+const convXV = d4bExtractVer + 100*2
+
+func fullXV(u string) int {
+	if strings.HasPrefix(u, "https://d4builds.gg/") {
+		return d4bExtractVer
+	}
+	return convXV
+}
+
+func hasXV(b []byte, v int) bool {
+	return bytes.Contains(b, []byte(fmt.Sprintf(`"xv":%d,`, v))) || bytes.Contains(b, []byte(fmt.Sprintf(`"xv":%d}`, v)))
+}
+
 func anyFull(u, planner string) ([]byte, error) {
 	if planner != "" {
 		if !plannerID.MatchString(planner) {
 			return nil, &httpErr{400}
 		}
 		p := cacheFile("mxfull_" + planner + ".json")
-		if b, err := os.ReadFile(p); err == nil && fresh(p, 6*time.Hour) && bytes.Contains(b, []byte(fmt.Sprintf(`"xv":%d`, d4bExtractVer))) {
+		if b, err := os.ReadFile(p); err == nil && fresh(p, 6*time.Hour) && hasXV(b, convXV) {
 			return b, nil
 		}
 		f, err := maxrollFull(planner)
@@ -1412,7 +1451,7 @@ func anyFull(u, planner string) ([]byte, error) {
 		os.WriteFile(p, b, 0o644)
 		return b, nil
 	}
-	if b := serverFull(u); b != nil {
+	if b := serverFull(u); b != nil && (hasXV(b, fullXV(u)) || !isCollector()) {
 		return b, nil
 	}
 	if !isCollector() {
@@ -1432,6 +1471,9 @@ func anyFull(u, planner string) ([]byte, error) {
 		return nil, &httpErr{400}
 	}
 	if err != nil {
+		if b := serverFull(u); b != nil {
+			return b, nil
+		}
 		return nil, err
 	}
 	go uploadFull(u, f)

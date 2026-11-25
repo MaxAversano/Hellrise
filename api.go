@@ -158,6 +158,11 @@ func setupAPI(mux *http.ServeMux) {
 		w.Write(b)
 	})
 
+	// dettagli di glifi e nodi leggendari (dai dati di gioco)
+	mux.HandleFunc("/api/pinfo", func(w http.ResponseWriter, r *http.Request) {
+		jsonOut(w, paragonInfo())
+	})
+
 	// paragon usato dall'overlay (planner Maxroll o build D4Builds)
 	mux.HandleFunc("/api/ovparagon", func(w http.ResponseWriter, r *http.Request) {
 		id := r.URL.Query().Get("id")

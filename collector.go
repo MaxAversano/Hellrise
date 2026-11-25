@@ -219,7 +219,7 @@ func collect() {
 			setStep(fmt.Sprintf("Mobalytics · stagione %d", n), -1, -1)
 			upd := strconv.FormatInt(b.Updated, 10)
 			fe, hasFull := fidx[hashURL(keyURL(b.URL))]
-			if old := serverDetail("moba", b.URL); old != nil && b.Updated > 0 && old.Updated == upd && hasFull && fe.XV == d4bExtractVer {
+			if old := serverDetail("moba", b.URL); old != nil && b.Updated > 0 && old.Updated == upd && hasFull && fe.XV == convXV {
 				stepDone(true) // non è cambiata dall'ultima lettura: resta quella sul server
 				continue
 			}
@@ -343,7 +343,7 @@ func serverFull(u string) []byte {
 	id := hashURL(keyURL(u))
 	p := cacheFile("full_" + id + ".json")
 	if st, err := os.Stat(p); err == nil && time.Since(st.ModTime()) < 3*time.Hour {
-		if b, err := os.ReadFile(p); err == nil && bytes.Contains(b, []byte(fmt.Sprintf(`"xv":%d`, d4bExtractVer))) {
+		if b, err := os.ReadFile(p); err == nil && hasXV(b, fullXV(u)) {
 			return b
 		}
 	}

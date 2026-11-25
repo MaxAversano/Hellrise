@@ -45,3 +45,17 @@ func TestBoardNames(t *testing.T) {
 		}
 	}
 }
+
+func TestPInfo(t *testing.T) {
+	if _, err := os.Stat("/tmp/hrd/cache/data.min.json"); err != nil {
+		t.Skip()
+	}
+	dataDir = "/tmp/hrd"
+	loadGameData()
+	p := paragonInfo()
+	t.Log(len(p.Glyphs), len(p.Nodes))
+	for _, k := range []string{"ambidextrous", "marshal", "challenger"} {
+		t.Logf("%+v", p.Glyphs[k])
+	}
+	t.Logf("%+v %v", p.Nodes["Barbarian_Legendary_009"], p.Board)
+}

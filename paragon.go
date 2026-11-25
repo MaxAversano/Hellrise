@@ -37,6 +37,7 @@ type PBoard struct {
 	RawSel   string   `json:"rawSel"`
 	Points   int      `json:"points"`
 	Legend   []string `json:"legend,omitempty"` // nodi leggendari presi
+	Keys     []string `json:"keys,omitempty"`   // id dei nodi, casella per casella, senza rotazione
 	X        int      `json:"x"`
 	Y        int      `json:"y"`
 }
@@ -104,6 +105,7 @@ func paragonBoard(d *gameData, b rawBoard) PBoard {
 		}
 	}
 	out.Width, out.Cells, out.Sel, out.RawCells, out.RawSel = w, string(cells), string(sel), string(rc), string(rs)
+	out.Keys = def.Names
 	return out
 }
 
