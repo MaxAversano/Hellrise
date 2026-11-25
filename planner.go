@@ -88,6 +88,32 @@ func plannerRaw(id string) ([]byte, error) {
 	return b, nil
 }
 
+// i dati di una fase: di solito {"boards":[...]}, ma alcuni planner hanno direttamente la lista
+// (o una lista vuota)
+type stepData struct {
+	Boards []rawBoard
+}
+
+func (d *stepData) UnmarshalJSON(b []byte) error {
+	var o struct {
+		Boards []rawBoard `json:"boards"`
+	}
+	if json.Unmarshal(b, &o) == nil {
+		d.Boards = o.Boards
+		return nil
+	}
+	var l []json.RawMessage
+	if json.Unmarshal(b, &l) == nil {
+		for _, x := range l {
+			var rb rawBoard
+			if json.Unmarshal(x, &rb) == nil && rb.ID != "" {
+				d.Boards = append(d.Boards, rb)
+			}
+		}
+	}
+	return nil
+}
+
 func plannerBuild(id string) (*PBuild, error) {
 	if !plannerID.MatchString(id) {
 		return nil, fmt.Errorf("planner non valido")
@@ -115,10 +141,8 @@ func plannerBuild(id string) (*PBuild, error) {
 			SkillBar []string       `json:"skillBar"`
 			Paragon  struct {
 				Steps []struct {
-					Name string `json:"name"`
-					Data struct {
-						Boards []rawBoard `json:"boards"`
-					} `json:"data"`
+					Name string   `json:"name"`
+					Data stepData `json:"data"`
 				} `json:"steps"`
 			} `json:"paragon"`
 		} `json:"profiles"`

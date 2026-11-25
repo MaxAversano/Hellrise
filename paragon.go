@@ -6,20 +6,42 @@ package main
 import (
 	"encoding/json"
 	"fmt"
+	"math"
 	"sort"
 	"strconv"
 	"strings"
 )
 
 type rawBoard struct {
-	ID       string         `json:"id"`
-	Nodes    map[string]int `json:"nodes"`
-	Rotation int            `json:"rotation"`
-	Glyph    string         `json:"glyph"`
-	GlyphLvl int            `json:"glyphLevel"`
+	ID       string  `json:"id"`
+	Nodes    nodeSet `json:"nodes"`
+	Rotation int     `json:"rotation"`
+	Glyph    string  `json:"glyph"`
+	GlyphLvl int     `json:"glyphLevel"`
 	Position struct {
 		X, Y int
 	} `json:"position"`
+}
+
+// nodi presi: di solito {"123":1}, ma vuoto arriva come [] (e a volte come lista di indici)
+type nodeSet map[string]int
+
+func (n *nodeSet) UnmarshalJSON(b []byte) error {
+	m := map[string]int{}
+	if json.Unmarshal(b, &m) == nil {
+		*n = m
+		return nil
+	}
+	var l []any
+	if json.Unmarshal(b, &l) == nil {
+		for _, x := range l {
+			if f, ok := x.(float64); ok {
+				m[strconv.Itoa(int(f))] = 1
+			}
+		}
+	}
+	*n = m
+	return nil
 }
 
 type PBoard struct {
@@ -442,6 +464,9 @@ func d4bParagonBuild(u string) (*PBuild, error) {
 			rot, _ := bm["r"].(float64)
 			id := boardID(name)
 			rb := rawBoard{ID: id, Nodes: map[string]int{}, Rotation: (int(rot)/90%4 + 4) % 4, Glyph: glyphID(g)}
+			px, _ := bm["x"].(float64)
+			py, _ := bm["y"].(float64)
+			rb.Position.X, rb.Position.Y = int(math.Round(px/1260)), int(math.Round(py/1260))
 			w := 21
 			if d != nil && d.Boards[id].Width > 0 {
 				w = d.Boards[id].Width

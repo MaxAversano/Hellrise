@@ -103,6 +103,8 @@ function applySettings() {
   document.body.classList.toggle('nomotion', s.motion === false);
   document.body.className = document.body.className.replace(/\bacc-\w+/g, '').trim();
   if (s.accent && s.accent !== 'ember') document.body.classList.add('acc-' + s.accent);
+  const pc = $('#pinchip');
+  if (pc) { const p = s.pinned; pc.hidden = !p?.url; if (p?.url) { pc.href = '#/b/' + encodeURIComponent(p.url); pc.innerHTML = `${clsIcon(p.cls, 15)}<span><small>In gioco</small>${esc(p.title)}</span>`; } }
 }
 function embers() {
   const box = $('#embers'); if (!box) return;
@@ -457,10 +459,11 @@ const BTABS = [['gear', 'Equipaggiamento e abilità', SA + 'UI/gear_skills.png']
 async function showBuild(b) {
   TIPS = [];
   const el = $('#bdet'), ui = S.ui.build;
-  const head = `<div class="bhead">${tierBadge(b.tier, b.cls)}<div style="flex:1;min-width:0"><h2 class="title">${esc(b.title)}</h2><div class="row wrap" style="gap:6px;margin-top:6px"><span class="badge src-${b.src}">${b.src}</span>${b.fromSeason ? `<span class="badge" title="La stagione ${S.season} non ha ancora build su ${b.src}">stagione ${b.fromSeason}</span>` : ''}<span class="badge ${/level/i.test(b.type) ? 'lv' : 'eg'}">${esc(b.type)}</span>${b.author ? `<span class="muted" style="font-size:12.5px">di ${esc(b.author)}</span>` : ''}${b.updated ? `<span class="muted" style="font-size:12.5px">· aggiornata ${dateLbl(b.updated)}</span>` : ''}</div></div><button class="btn ghost" id="bcmp" title="Aggiungi al confronto">${cmpHas(b.url) ? '⇄ Nel confronto' : '⇄ Confronta'}</button><button class="btn bsave ${isSaved(b.url) ? 'on' : ''}" id="bsave">${IC.star} ${isSaved(b.url) ? 'Salvata' : 'Salva build'}</button><button class="btn" id="bopen">${IC.ext} Apri guida</button></div>
+  const head = `<div class="bhead">${tierBadge(b.tier, b.cls)}<div style="flex:1;min-width:0"><h2 class="title">${esc(b.title)}</h2><div class="row wrap" style="gap:6px;margin-top:6px"><span class="badge src-${b.src}">${b.src}</span>${b.fromSeason ? `<span class="badge" title="La stagione ${S.season} non ha ancora build su ${b.src}">stagione ${b.fromSeason}</span>` : ''}<span class="badge ${/level/i.test(b.type) ? 'lv' : 'eg'}">${esc(b.type)}</span>${b.author ? `<span class="muted" style="font-size:12.5px">di ${esc(b.author)}</span>` : ''}${b.updated ? `<span class="muted" style="font-size:12.5px">· aggiornata ${dateLbl(b.updated)}</span>` : ''}</div></div><button class="btn ghost" id="bcmp" title="Aggiungi al confronto">${cmpHas(b.url) ? '⇄ Nel confronto' : '⇄ Confronta'}</button><button class="btn bpin ${isPinned(b.url) ? 'on' : ''}" id="bpin" title="La build che stai giocando: l'overlay in gioco usa il suo paragon e la sua rotazione">📌 ${isPinned(b.url) ? 'Fissata' : 'Fissa build'}</button><button class="btn bsave ${isSaved(b.url) ? 'on' : ''}" id="bsave">${IC.star} ${isSaved(b.url) ? 'Salvata' : 'Salva build'}</button><button class="btn" id="bopen">${IC.ext} Apri guida</button></div>
     <div id="bnote"></div>
     ${b.tier || b.info ? `<div class="robinfo"><b>Rob2628:</b> ${b.tier ? `tier ${esc(b.tier)}${b.tierNote ? ' (' + esc(b.tierNote) + ')' : ''}` : ''}${b.info ? ' · ' + esc(b.info) : ''}</div>` : ''}`;
-  const bindOpen = () => { const o = $('#bopen'); if (o) o.onclick = () => openGuide(b.url); const cb = $('#bcmp'); if (cb) cb.onclick = () => { cmpToggle(b); cb.textContent = cmpHas(b.url) ? '⇄ Nel confronto' : '⇄ Confronta'; }; bindNote(b); const sb = $('#bsave'); if (sb) sb.onclick = () => { toggleSave(b); sb.classList.toggle('on', isSaved(b.url)); sb.innerHTML = `${IC.star} ${isSaved(b.url) ? 'Salvata' : 'Salva build'}`; setTimeout(() => bindNote(b), 50); }; };
+  let pinCtx = null;
+  const bindOpen = () => { const pb = $('#bpin'); if (pb) pb.onclick = async () => { if (isPinned(b.url)) await unpinBuild(); else if (!pinCtx) { toast('Aspetta che la build finisca di caricare'); return; } else await pinBuild(b, pinCtx.view, pinCtx.v); pb.classList.toggle('on', isPinned(b.url)); pb.textContent = '📌 ' + (isPinned(b.url) ? 'Fissata' : 'Fissa build'); }; const o = $('#bopen'); if (o) o.onclick = () => openGuide(b.url); const cb = $('#bcmp'); if (cb) cb.onclick = () => { cmpToggle(b); cb.textContent = cmpHas(b.url) ? '⇄ Nel confronto' : '⇄ Confronta'; }; bindNote(b); const sb = $('#bsave'); if (sb) sb.onclick = () => { toggleSave(b); sb.classList.toggle('on', isSaved(b.url)); sb.innerHTML = `${IC.star} ${isSaved(b.url) ? 'Salvata' : 'Salva build'}`; setTimeout(() => bindNote(b), 50); }; };
   el.innerHTML = head + `<div class="skel" style="height:420px;margin-top:16px"></div>`;
   bindOpen();
   const token = (ui._tok = (ui._tok || 0) + 1);
@@ -483,6 +486,8 @@ async function showBuild(b) {
   }
   if (!view.variants[ui.variant]) ui.variant = 0;
   const v = view.variants[ui.variant];
+  pinCtx = { view, v };
+  if (isPinned(b.url) && S.st.settings.pinned.variant !== ui.variant) pinBuild(b, view, v, true); // cambi variante della build fissata: l'overlay la segue
   const has = {
     gear: true,
     tree: !!(v.tree && v.tree.nodes?.length),
@@ -709,7 +714,7 @@ async function parView(box, view, v, b) {
   const strip = `<div class="pstrip"><button data-k="-1" class="${ui.pboard === -1 ? 'on' : ''}"><span class="n">⊞</span><div><b>Panoramica</b><small>${st.boards.length} tavole</small></div></button>${st.boards.map((bd, i) => `<button data-k="${i}" class="${ui.pboard === i ? 'on' : ''}"><span class="n">${i + 1}</span><div><b>${esc(TN(view, bd.n, ''))}</b><small>${bd.g ? esc(TN(view, bd.g, '')) : 'senza glifo'}</small></div></button>`).join('')}</div>`;
   const steps = P.steps.length > 1 ? `<div class="seg" id="pstep">${P.steps.map((x, i) => `<button data-s="${i}" class="${i === (ui.pstep || 0) ? 'on' : ''}">${esc(x.name || 'Fase ' + (i + 1))}</button>`).join('')}</div>` : '';
   const total = P.points || st.boards.reduce((a, bd) => a + bd.tiles.filter(t => t[2]).length, 0);
-  box.innerHTML = `<div class="row wrap" style="margin-bottom:10px;gap:8px">${steps}<span class="muted" style="font-size:12.5px">${total} punti paragon</span><span class="sp"></span><button class="btn" id="toov">Paragon nell'overlay in gioco</button></div>${strip}<div id="pbody"></div>`;
+  box.innerHTML = `<div class="row wrap" style="margin-bottom:10px;gap:8px">${steps}<span class="muted" style="font-size:12.5px">${total} punti paragon</span><span class="sp"></span><button class="btn ${isPinned(b.url) ? 'pri' : ''}" id="toov">${isPinned(b.url) ? '📌 In uso nell\'overlay' : '📌 Fissa e usa nell\'overlay'}</button></div>${strip}<div id="pbody"></div>`;
   const body = $('#pbody', box);
   if (ui.pboard === -1) { body.innerHTML = paragonView(view, { points: P.points, boards: st.boards.map(bd => ({ ...bd, r: bd.rot })) }, P); bindViewer(body);
     let down = null;
@@ -727,8 +732,8 @@ async function parView(box, view, v, b) {
     });
   }
   $$('.pstrip button', box).forEach(x => x.onclick = () => { ui.pboard = +x.dataset.k; parView(box, view, v, b); });
-  $$('#pstep button', box).forEach(x => x.onclick = () => { ui.pstep = +x.dataset.s; parView(box, view, v, b); });
-  $('#toov', box).onclick = () => v.paragon ? paragonToOverlay('d4b:' + keyU(b.url) + '/', b.title, ui.variant || 0) : paragonToOverlay(view.plannerId, b.title, ui.variant, ui.pstep || 0);
+  $$('#pstep button', box).forEach(x => x.onclick = () => { ui.pstep = +x.dataset.s; parView(box, view, v, b); if (isPinned(b.url)) pinBuild(b, view, v, true); });
+  $('#toov', box).onclick = async () => { await pinBuild(b, view, v); const pb = $('#bpin'); if (pb) { pb.classList.add('on'); pb.textContent = '📌 Fissata'; } };
 }
 const PTILE = 60;
 const PRAR = { Common: '#5b534e', Magic: '#4f8bff', Rare: '#ffd24a', Legendary: '#ff7a2a', Glyph: '#c07bff', Gate: '#ddd' };
@@ -894,6 +899,30 @@ function bindGearExtras(box, view, v, b, redraw) {
   if (!S.lootIdx) loadLootIdx().then(() => { if ($('.flist', box)) redraw(); });
 }
 
+// build fissata: quella che stai giocando. Imposta da sola paragon, fase e rotazione dell'overlay
+const isPinned = u => !!u && keyU(S.st.settings?.pinned?.url || '') === keyU(u);
+function overlayFor(b, view, v) {
+  const ui = S.ui.build;
+  const mx = !v.paragon?.boards?.length && v.mxParagon?.length;
+  const planner = v.paragon?.boards?.length ? 'd4b:' + keyU(b.url) + '/' : (mx ? view.plannerId : '');
+  const step = mx ? (ui.pstep != null && v.mxParagon[ui.pstep] ? ui.pstep : v.mxParagon.length - 1) : 0;
+  const r = rotationLines(view, v);
+  const cur = S.st.settings.overlay || {};
+  return { ...cur, enabled: true, planner, title: b.title, variant: ui.variant || 0, step, board: 0, paragon: { ...(cur.paragon || {}), on: !!planner }, rotation: { ...(cur.rotation || {}), on: r.lines.length > 0 || !!cur.rotation?.on }, rotTitle: b.title, rotLines: r.lines };
+}
+async function pinBuild(b, view, v, quiet) {
+  const ui = S.ui.build;
+  const pinned = { url: b.url, title: b.title, cls: b.cls, src: b.src, variant: ui.variant || 0, varName: v.name || '', at: Math.floor(Date.now() / 1000) };
+  try {
+    S.st.settings = await post('/api/settings', { pinned, overlay: overlayFor(b, view, v) });
+    applySettings();
+    if (!isSaved(b.url)) toggleSave(b);
+    if (!quiet) toast(v.paragon?.boards?.length || v.mxParagon?.length ? 'Build fissata: l\'overlay in gioco ora usa il suo paragon e la sua rotazione' : 'Build fissata (questa variante non ha un paragon)');
+  } catch (e) { toast(e.message); }
+}
+async function unpinBuild() {
+  try { S.st.settings = await post('/api/settings', { pinned: null }); applySettings(); toast('Build tolta dalla fissata'); } catch (e) { toast(e.message); }
+}
 async function paragonToOverlay(planner, title, variant, step) {
   const o = { ...(S.st.settings.overlay || {}), planner, title, variant: variant || 0, step: step || 0, board: 0, enabled: true, paragon: { ...(S.st.settings.overlay?.paragon || {}), on: true } };
   try { S.st.settings = await post('/api/settings', { overlay: o }); toast('Paragon impostato nell\'overlay'); } catch (e) { toast(e.message); }
@@ -1285,7 +1314,8 @@ PAGES.overlay = async main => {
     inp.onchange = () => save({ [inp.dataset.o]: inp.checked });
   });
   const box = $('#ovpar');
-  if (!o.planner) { box.innerHTML = `<div class="muted" style="margin-top:6px">Nessuna build scelta. Apri una build in <a class="link" href="#/build">Build</a>, scheda Paragon, e premi “Paragon nell'overlay in gioco”.</div>`; return; }
+  const pin = S.st.settings.pinned;
+  if (!o.planner) { box.innerHTML = `<div class="muted" style="margin-top:6px">${pin ? `La build fissata (<b>${esc(pin.title)}</b>) non ha un paragon in questa variante.` : `Nessuna build fissata. Apri la build che stai giocando in <a class="link" href="#/build">Build</a> e premi <b>📌 Fissa build</b>: l'overlay prende da solo paragon e rotazione.`}</div>`; return; }
   box.innerHTML = `<div class="skel" style="height:120px"></div>`;
   let p; try { p = await api('/api/ovparagon?id=' + encodeURIComponent(o.planner)); } catch (e) { box.innerHTML = `<div class="muted">Paragon non disponibile: ${esc(e.message)}</div>`; return; }
   const vi = Math.min(o.variant || 0, p.variants.length - 1), v = p.variants[vi] || {}, steps = v.paragon || [];

@@ -106,11 +106,11 @@ func stepDone(ok bool) {
 
 func collectLoop() {
 	var last struct {
-		At      int64  `json:"at"`
-		Version string `json:"version"`
+		At int64 `json:"at"`
+		XV int   `json:"xv"`
 	}
 	readJSON(cacheFile("raccolta.json"), &last)
-	if last.Version != appVersion { // nuova versione dell'app: raccoglie di nuovo subito
+	if last.XV != convXV { // è cambiato il modo di leggere le build: raccoglie di nuovo subito
 		last.At = 0
 	}
 	collectState.Lock()
@@ -132,7 +132,7 @@ func collectLoop() {
 				collectState.Lock()
 				collectState.At = now
 				collectState.Unlock()
-				writeJSON(cacheFile("raccolta.json"), map[string]any{"at": now, "version": appVersion})
+				writeJSON(cacheFile("raccolta.json"), map[string]any{"at": now, "xv": convXV})
 			} else {
 				retry = time.Now().Add(30 * time.Minute) // non è riuscita: riprova tra mezz'ora
 			}

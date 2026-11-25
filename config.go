@@ -23,6 +23,7 @@ type Settings struct {
 	D4PressurePath string       `json:"d4pressurePath"`
 	Favorites      []string     `json:"favorites"`   // oggetti seguiti in "Chi droppa cosa"
 	SavedBuilds    []SavedBuild `json:"savedBuilds"` // build salvate (con filtri e variante)
+	Pinned         *PinnedBuild `json:"pinned"`      // la build che stai giocando: comanda l'overlay
 	Blur           bool         `json:"blur"`        // effetto vetro più marcato
 	Motion         bool         `json:"motion"`      // animazioni dello sfondo
 	Accent         string       `json:"accent"`      // colore principale
@@ -35,6 +36,17 @@ type OWidget struct {
 	Lock bool    `json:"lock"` // bloccato: non si sposta
 	X    float64 `json:"x"`    // 0..1 frazione dello schermo
 	Y    float64 `json:"y"`
+}
+
+// build fissata: quella che stai giocando
+type PinnedBuild struct {
+	URL     string `json:"url"`
+	Title   string `json:"title"`
+	Cls     string `json:"cls"`
+	Src     string `json:"src"`
+	Variant int    `json:"variant"`
+	VarName string `json:"varName"`
+	At      int64  `json:"at"`
 }
 
 // overlay in gioco (Diablo IV in finestra senza bordi)

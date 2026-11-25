@@ -507,112 +507,194 @@ func currentBoard(o OverlaySet) (curBoard, string) {
 }
 
 func drawParagon(hdc uintptr, o OverlaySet, sc func(float64) int32, k float64) rect {
+	// automatico: se il paragon del gioco è aperto e riconosciuto, cornici sulla tavola vera;
+	// altrimenti la guida con tutto il paragon della build fissata
 	if o.Mode != "panel" {
-		return drawParagonAligned(hdc, o, sc, k)
+		if d, ok := lastDetect(); ok && d.OK && d.Board >= 0 {
+			return drawParagonAligned(hdc, o, sc, k)
+		}
 	}
-	cell := o.Cell
+	return drawParagonGuide(hdc, o, sc, k)
+}
+
+// "1 scatto (90° in senso orario)"
+func rotPhrase(r int) string {
+	switch ((r % 4) + 4) % 4 {
+	case 1:
+		return "ruotala di 1 scatto (90°, senso orario)"
+	case 2:
+		return "ruotala di 2 scatti (180°)"
+	case 3:
+		return "ruotala di 3 scatti (90° antiorario)"
+	}
+	return "nessuna rotazione"
+}
+
+// disegna una tavola (già ruotata) in un riquadro
+func drawBoardCells(hdc uintptr, cells, sel string, w int, x, y int32, cs float64, gap int32) {
+	for i := 0; i < len(cells) && i < len(sel); i++ {
+		c := cells[i]
+		cc, ok := cellCol[c]
+		if !ok {
+			continue
+		}
+		x0 := x + int32(float64(i%w)*cs)
+		y0 := y + int32(float64(i/w)*cs)
+		x1 := x + int32(float64(i%w+1)*cs)
+		y1 := y + int32(float64(i/w+1)*cs)
+		if x1-x0 > 3 {
+			x0, y0, x1, y1 = x0+gap, y0+gap, x1-gap, y1-gap
+		}
+		if x1 <= x0 {
+			x1 = x0 + 1
+		}
+		if y1 <= y0 {
+			y1 = y0 + 1
+		}
+		if sel[i] == '1' {
+			ovFill(hdc, rect{x0, y0, x1, y1}, cc[1])
+		} else {
+			ovFill(hdc, rect{x0, y0, x1, y1}, cc[0])
+		}
+	}
+}
+
+// guida: tutto il paragon (mappa delle tavole) + la tavola da fare adesso, con le istruzioni
+func drawParagonGuide(hdc uintptr, o OverlaySet, sc func(float64) int32, k float64) rect {
+	cb, perr := currentBoard(o)
+	b, board, step := cb.b, cb.board, cb.step
+	f10, f12, f13 := ovFont(int(10.5*k), true), ovFont(int(12*k), false), ovFont(int(14*k), true)
+	cell := float64(o.Cell)
 	if cell <= 0 {
 		cell = 13
 	}
-	cs := sc(float64(cell))
-	if cs < 4 {
-		cs = 4
+	side := sc(cell * 0.75 * 21) // lato della tavola grande e della mappa
+	if side < sc(150) {
+		side = sc(150)
 	}
-	cb, perr := currentBoard(o)
-	b, board, step, variant := cb.b, cb.board, cb.step, cb.variant
-	gw := int32(21) * cs
-	if board != nil {
-		gw = int32(board.Width) * cs
-	}
-	w := gw + sc(28)
-	if w < sc(300) {
-		w = sc(300)
-	}
-	head := sc(64)
-	foot := sc(52)
-	h := head + gw + foot
+	pad := sc(14)
+	w := side*2 + pad*3
 	if board == nil {
-		h = head + sc(40)
-	}
-	x, y := widgetOrigin(o.Paragon, w, h)
-	ovRound(hdc, rect{x, y, x + w, y + h}, sc(14), cPanel, cBorder)
-	f10, f12, f13 := ovFont(int(10.5*k), true), ovFont(int(12*k), false), ovFont(int(14*k), true)
-	title := "HELLRISE · PARAGON"
-	if step != nil {
-		vi := clampInt(o.Variant, 0, len(b.Variants)-1)
-		si := clampInt(o.Step, 0, len(variant.Paragon)-1)
-		title = fmt.Sprintf("PARAGON · %s · %s · TAVOLA %d/%d", strings.ToUpper(b.Variants[vi].Name), strings.ToUpper(variant.Paragon[si].Name), clampInt(o.Board, 0, len(step.Boards)-1)+1, len(step.Boards))
-	}
-	ovText(hdc, title, rect{x + sc(14), y + sc(4), x + w - sc(10), y + sc(26)}, cMute, f10, dtLeft)
-	if board == nil {
-		msg := "Scegli una build Maxroll in Hellrise → Overlay"
+		w = sc(360)
+		h := sc(70)
+		x, y := widgetOrigin(o.Paragon, w, h)
+		ovRound(hdc, rect{x, y, x + w, y + h}, sc(14), cPanel, cBorder)
+		ovText(hdc, "HELLRISE · PARAGON", rect{x + pad, y + sc(4), x + w - sc(10), y + sc(26)}, cMute, f10, dtLeft)
+		msg := "Fissa una build in Hellrise (pulsante 📌 nella build)"
 		switch {
 		case perr != "":
-			msg = "Planner non disponibile: " + perr
+			msg = "Paragon non disponibile: " + perr
 		case o.Planner != "" && b == nil:
 			msg = "Carico il paragon…"
 		case b != nil:
 			msg = "Questa variante non ha un paragon"
 		}
-		ovText(hdc, msg, rect{x + sc(14), y + sc(30), x + w - sc(10), y + sc(60)}, cInk, f12, dtLeft)
+		ovText(hdc, msg, rect{x + pad, y + sc(30), x + w - sc(10), y + sc(62)}, cInk, f12, dtLeft)
 		return rect{x, y, x + w, y + h}
 	}
-	name := pick(board.Name, board.En)
-	ovText(hdc, name, rect{x + sc(14), y + sc(24), x + w - sc(90), y + sc(44)}, cInk, f13, dtLeft)
-	rotTxt := rotLabel(board.Rotation)
-	ovText(hdc, rotTxt, rect{x + w - sc(150), y + sc(24), x + w - sc(14), y + sc(44)}, cAcc2, ovFont(int(12*k), true), dtRight)
-	sub := fmt.Sprintf("%d punti", board.Points)
+	bi := clampInt(o.Board, 0, len(step.Boards)-1)
+	// righe di istruzioni
+	type line struct {
+		t string
+		c uintptr
+		f uintptr
+	}
+	var lines []line
+	rotTxt := rotPhrase(cb.rot)
+	if bi == 0 {
+		rotTxt = "tavola di partenza"
+	}
+	lines = append(lines, line{"↻ " + rotTxt, cAcc2, ovFont(int(12.5*k), true)})
 	if g := pick(board.Glyph, board.GlyphEn); g != "" {
-		sub = "Glifo: " + g
+		t := "◆ Glifo: " + g
 		if board.GlyphLvl > 0 {
-			sub += fmt.Sprintf(" (liv. %d)", board.GlyphLvl)
+			t += fmt.Sprintf(" (liv. %d)", board.GlyphLvl)
 		}
-		sub += fmt.Sprintf(" · %d punti", board.Points)
+		lines = append(lines, line{t, col(0xC07BFF), f12})
 	}
-	ovText(hdc, sub, rect{x + sc(14), y + sc(42), x + w - sc(14), y + sc(60)}, cMute, f12, dtLeft)
-	gx := x + (w-gw)/2
-	gy := y + head
-	bw := board.Width
-	gap := int32(1)
-	if cs < 8 {
-		gap = 0
-	}
-	for i := 0; i < len(cb.cells); i++ {
-		c := cb.cells[i]
-		if c == '0' {
-			continue
-		}
-		cc, ok := cellCol[c]
-		if !ok {
-			continue
-		}
-		cx, cy := gx+int32(i%bw)*cs, gy+int32(i/bw)*cs
-		r := rect{cx + gap, cy + gap, cx + cs - gap, cy + cs - gap}
-		if cb.sel[i] == '1' {
-			ovFill(hdc, r, cc[1])
-		} else {
-			ovFill(hdc, r, cc[0])
-		}
-	}
-	fy := gy + gw + sc(6)
-	leg := ""
 	for _, l := range board.Legend {
 		p := strings.SplitN(l, "|", 2)
 		en := ""
 		if len(p) > 1 {
 			en = p[1]
 		}
-		leg = "Leggendario: " + pick(p[0], en)
+		lines = append(lines, line{"★ Leggendario: " + pick(p[0], en), cAcc, f12})
 		break
 	}
-	if leg != "" {
-		ovText(hdc, leg, rect{x + sc(14), fy, x + w - sc(14), fy + sc(20)}, cAcc, ovFont(int(12*k), true), dtLeft)
+	lines = append(lines, line{fmt.Sprintf("● %d punti su questa tavola", board.Points), cInk, f12})
+	if bi+1 < len(step.Boards) {
+		nb := step.Boards[bi+1]
+		lines = append(lines, line{fmt.Sprintf("Poi: tavola %d · %s", bi+2, pick(nb.Name, nb.En)), cMute, f12})
 	}
-	hint := "Ctrl+Shift+←/→ tavola · R/Q ruota · M automatico"
-	if cb.rot != board.Rotation {
-		hint = "Ruotata da te: " + rotLabel(cb.rot) + " · " + hint
+	head := sc(52)
+	rowH := sc(20)
+	foot := sc(24)
+	h := head + side + sc(10) + rowH*int32(len(lines)) + foot
+	x, y := widgetOrigin(o.Paragon, w, h)
+	ovRound(hdc, rect{x, y, x + w, y + h}, sc(14), cPanel, cBorder)
+	title := "PARAGON"
+	if o.Title != "" {
+		title += " · " + strings.ToUpper(o.Title)
 	}
-	ovText(hdc, hint, rect{x + sc(14), fy + sc(22), x + w - sc(14), fy + sc(42)}, cMute, ovFont(int(10.5*k), false), dtLeft)
+	if len(cb.variant.Paragon) > 1 {
+		title += " · " + strings.ToUpper(step.Name)
+	}
+	ovText(hdc, title, rect{x + pad, y + sc(4), x + w - sc(40), y + sc(24)}, cMute, f10, dtLeft|0x8000)
+	ovText(hdc, fmt.Sprintf("Tavola %d/%d · %s", bi+1, len(step.Boards), pick(board.Name, board.En)), rect{x + pad, y + sc(24), x + w - pad, y + sc(46)}, cInk, f13, dtLeft|0x8000)
+	// mappa di tutte le tavole
+	mx, my := x+pad, y+head
+	ovFill(hdc, rect{mx, my, mx + side, my + side}, col(0x100A08))
+	minX, maxX, minY, maxY := 1<<30, -(1 << 30), 1<<30, -(1 << 30)
+	for _, bd := range step.Boards {
+		minX, maxX = min(minX, bd.X), max(maxX, bd.X)
+		minY, maxY = min(minY, bd.Y), max(maxY, bd.Y)
+	}
+	bw := board.Width
+	if bw <= 0 {
+		bw = 21
+	}
+	cols, rows := maxX-minX+1, maxY-minY+1
+	span := max(cols, rows)
+	unit := float64(side-sc(8)) / float64(span*(bw+1))
+	ox := mx + sc(4) + int32(float64((span-cols)*(bw+1))*unit/2)
+	oy := my + sc(4) + int32(float64((span-rows)*(bw+1))*unit/2)
+	for i, bd := range step.Boards {
+		r := bd.Rotation
+		if i == bi {
+			r = cb.rot
+		}
+		cells := rotateGrid(bd.RawCells, bd.Width, r)
+		sel := rotateGrid(bd.RawSel, bd.Width, r)
+		if cells == "" {
+			cells, sel = bd.Cells, bd.Sel
+		}
+		bx := ox + int32(float64((bd.X-minX)*(bw+1))*unit)
+		by := oy + int32(float64((bd.Y-minY)*(bw+1))*unit)
+		drawBoardCells(hdc, cells, sel, bd.Width, bx, by, unit, 0)
+		bs := int32(float64(bd.Width) * unit)
+		if i == bi {
+			ovFrame(hdc, rect{bx - 2, by - 2, bx + bs + 2, by + bs + 2}, 2, cAcc2)
+		}
+		ovText(hdc, fmt.Sprintf("%d", i+1), rect{bx, by, bx + bs, by + bs}, cInk, ovFont(int(11*k), true), dtCenter)
+	}
+	// la tavola di adesso, grande e già girata come va messa
+	gx := mx + side + pad
+	cs := float64(side) / float64(bw)
+	gap := int32(1)
+	if cs < 7 {
+		gap = 0
+	}
+	drawBoardCells(hdc, cb.cells, cb.sel, bw, gx, my, cs, gap)
+	ly := my + side + sc(10)
+	for _, l := range lines {
+		ovText(hdc, l.t, rect{x + pad, ly, x + w - pad, ly + rowH}, l.c, l.f, dtLeft|0x8000)
+		ly += rowH
+	}
+	hint := "Ctrl+Shift+←/→ tavola · ↑/↓ fase · R/Q ruota"
+	if o.Mode != "panel" {
+		hint += " · apri il paragon in gioco: si allinea da solo"
+	}
+	ovText(hdc, hint, rect{x + pad, y + h - foot, x + w - pad, y + h - sc(4)}, cMute, ovFont(int(10*k), false), dtLeft|0x8000)
 	return rect{x, y, x + w, y + h}
 }
 
@@ -660,8 +742,25 @@ func drawParagonAligned(hdc uintptr, o OverlaySet, sc func(float64) int32, k flo
 	if g := pick(cb.board.Glyph, cb.board.GlyphEn); g != "" {
 		label += " · glifo " + g
 	}
+	warn := ""
+	if d := ((cb.board.Rotation-det.Rot)%4 + 4) % 4; d != 0 && det.Board > 0 {
+		warn = "⚠ Nella build è girata diversamente: " + rotPhrase(d) + " prima di attaccarla"
+	}
+	if warn != "" {
+		lh = sc(50)
+		if ly < gy {
+			ly = gy - lh - sc(8)
+			if ly < 0 {
+				ly = gy + side + sc(8)
+			}
+		}
+		lw = sc(520)
+	}
 	ovRound(hdc, rect{lx, ly, lx + lw, ly + lh}, sc(12), cPanel, cBorder)
-	ovText(hdc, label, rect{lx + sc(10), ly, lx + lw - sc(10), ly + lh}, cInk, ovFont(int(12*k), true), dtLeft)
+	ovText(hdc, label, rect{lx + sc(10), ly, lx + lw - sc(10), ly + sc(28)}, cInk, ovFont(int(12*k), true), dtLeft|0x8000)
+	if warn != "" {
+		ovText(hdc, warn, rect{lx + sc(10), ly + sc(24), lx + lw - sc(10), ly + lh - sc(4)}, cAcc2, ovFont(int(12*k), true), dtLeft|0x8000)
+	}
 	t := int32(cp / 12)
 	if t < 2 {
 		t = 2
@@ -732,6 +831,9 @@ func autoDetectLoop() {
 			same := c.OK && absf(c.Cell-d.Cell) < 0.05*d.Cell && absf(c.X-d.X) < d.Cell/3 && absf(c.Y-d.Y) < d.Cell/3 && c.Rot == d.Rot && c.Board == d.Board
 			if same || (det.last.OK && time.Since(det.at) < 3*time.Second) {
 				det.last, det.at = d, time.Now()
+				if bi >= 0 && bi != o.Board { // la guida segue la tavola che hai aperto in gioco
+					go updateSettings(func(s *Settings) { s.Overlay.Board = bi })
+				}
 			}
 			det.cand = d
 		} else {

@@ -141,6 +141,6 @@ func serverUpdateLoop() {
 				}
 			}
 		}
-		time.Sleep(time.Hour)
+		time.Sleep(10 * time.Minute)
 	}
 }

@@ -59,3 +59,18 @@ func TestPInfo(t *testing.T) {
 	}
 	t.Logf("%+v %v", p.Nodes["Barbarian_Legendary_009"], p.Board)
 }
+
+func TestPlannerList(t *testing.T) {
+	if _, err := os.Stat("/tmp/hrd/planner/5zxmig0x.json"); err != nil {
+		t.Skip()
+	}
+	dataDir = "/tmp/hrd"
+	loadGameData()
+	b, err := plannerBuild("5zxmig0x")
+	if err != nil {
+		t.Fatal(err)
+	}
+	v := b.Variants[len(b.Variants)-1]
+	st := v.Paragon[len(v.Paragon)-1]
+	t.Log(b.Name, len(b.Variants), v.Name, st.Name, len(st.Boards), st.Boards[0].Points, st.Boards[1].Name, st.Boards[1].X, st.Boards[1].Y)
+}
