@@ -90,7 +90,16 @@ async function boot() {
   route();
 }
 async function poll() {
-  try { const st = await api('/api/state?s=' + S.season); const seasonsChanged = JSON.stringify(st.seasons) !== JSON.stringify(S.st.seasons); S.st = st; if (seasonsChanged) { S.builds = {}; S.loot = {}; renderSeasonPick(); } updBar(st.update); } catch { }
+  try {
+    const st = await api('/api/state?s=' + S.season);
+    const seasonsChanged = JSON.stringify(st.seasons) !== JSON.stringify(S.st.seasons);
+    const namesArrived = !S.st.classesIt && st.classesIt;
+    const dataArrived = (S.st.remote?.at || 0) !== (st.remote?.at || 0);
+    S.st = st;
+    if (seasonsChanged || dataArrived) { S.builds = {}; S.loot = {}; renderSeasonPick(); }
+    if ((seasonsChanged || namesArrived) && !document.querySelector('input:focus,textarea:focus')) route();
+    updBar(st.update);
+  } catch { }
 }
 function applySettings() {
   const s = S.st.settings || {};
@@ -544,6 +553,7 @@ PAGES.macro = async main => {
 };
 
 // ---------------------------------------------------------------- overlay in gioco
+const MOVEKEYS = [[0xA4, 'Alt sinistro'], [0xA5, 'Alt destro (AltGr)'], [0xA2, 'Ctrl sinistro'], [0xA3, 'Ctrl destro'], [0xA0, 'Shift sinistro'], [0x09, 'Tab'], [0x14, 'Bloc Maiusc'], [0xC0, 'ò'], [0xDC, '\\ (sotto Esc)'], [0x05, 'Tasto laterale mouse 4'], [0x06, 'Tasto laterale mouse 5'], ...Array.from({ length: 12 }, (_, i) => [0x70 + i, 'F' + (i + 1)])];
 PAGES.overlay = async main => {
   const o = S.st.settings.overlay || {};
   const tg = (path, label, small) => { const v = path.split('.').reduce((a, k) => a?.[k], o); return `<label class="tog"><input type="checkbox" data-o="${path}" ${v ? 'checked' : ''}><i></i><span><b>${label}</b>${small ? `<small>${small}</small>` : ''}</span></label>`; };
@@ -554,6 +564,10 @@ PAGES.overlay = async main => {
         ${tg('enabled', 'Overlay attivo', 'Compare solo quando Diablo IV è in primo piano')}
         ${tg('always', 'Mostralo anche fuori dal gioco', 'Utile per provarlo e sistemare le posizioni')}
         <label class="field"><span>Dimensione · <b id="scv">${Math.round((o.scale || 1) * 100)}%</b></span><input type="range" min="0.6" max="1.6" step="0.05" value="${o.scale || 1}" data-o="scale"></label>
+        <label class="field"><span>Opacità · <b id="opv">${o.opacity || 92}%</b></span><input type="range" min="20" max="100" step="2" value="${o.opacity || 92}" data-o="opacity"></label>
+        <label class="field"><span>Tieni premuto per spostare e bloccare i riquadri</span><select class="inp" data-o="moveKey">${MOVEKEYS.map(([v, l]) => `<option value="${v}" ${(o.moveKey || 0xA4) === v ? 'selected' : ''}>${l}</option>`).join('')}</select></label>
+        <div class="muted" style="font-size:12.5px;line-height:1.5">In gioco, tenendo premuto il tasto scelto, trascini i riquadri col mouse; il lucchetto in alto a destra di ogni riquadro lo blocca (o lo sblocca) dov'è. Lasciando il tasto i clic tornano al gioco.</div>
+        ${tg('timers.lock', 'Timer bloccati')}${tg('paragon.lock', 'Riquadro paragon bloccato')}
         <div class="keys" style="margin-top:6px"><span class="keycap">Ctrl+Shift+O</span><span>mostra o nasconde tutto</span><span class="keycap">Ctrl+Shift+E</span><span>sposta i riquadri col mouse (poi di nuovo per finire)</span><span class="keycap">Ctrl+Shift+T</span><span>timer sì/no</span><span class="keycap">Ctrl+Shift+P</span><span>paragon sì/no</span><span class="keycap">Ctrl+Shift+← →</span><span>tavola paragon precedente / successiva</span><span class="keycap">Ctrl+Shift+↑ ↓</span><span>fase del paragon</span><span class="keycap">Ctrl+Shift+R / Q</span><span>solo riquadro: ruota la tavola in senso orario / antiorario</span><span class="keycap">Ctrl+Shift+M</span><span>automatico ↔ riquadro</span></div>
       </div>
       <div class="glass card"><h2>Timer degli eventi</h2>
@@ -572,7 +586,9 @@ PAGES.overlay = async main => {
   const save = async patch => { const cur = { ...(S.st.settings.overlay || {}) }; for (const [k, v] of Object.entries(patch)) { const ks = k.split('.'); if (ks.length === 2) cur[ks[0]] = { ...(cur[ks[0]] || {}), [ks[1]]: v }; else cur[k] = v; } try { S.st.settings = await post('/api/settings', { overlay: cur }); } catch (e) { toast(e.message); } };
   $$('#ovmode button', main).forEach(b => b.onclick = async () => { await save({ mode: b.dataset.m }); PAGES.overlay(main); });
   $$('[data-o]', main).forEach(inp => {
-    if (inp.type === 'range') { inp.oninput = () => $('#scv').textContent = Math.round(inp.value * 100) + '%'; inp.onchange = () => save({ scale: +inp.value }); return; }
+    if (inp.dataset.o === 'scale') { inp.oninput = () => $('#scv').textContent = Math.round(inp.value * 100) + '%'; inp.onchange = () => save({ scale: +inp.value }); return; }
+    if (inp.dataset.o === 'opacity') { inp.oninput = () => { $('#opv').textContent = inp.value + '%'; clearTimeout(inp._t); inp._t = setTimeout(() => save({ opacity: +inp.value }), 150); }; return; }
+    if (inp.tagName === 'SELECT') { inp.onchange = () => save({ [inp.dataset.o]: +inp.value }); return; }
     inp.onchange = () => save({ [inp.dataset.o]: inp.checked });
   });
   const box = $('#ovpar');

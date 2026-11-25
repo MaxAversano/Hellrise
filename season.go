@@ -61,11 +61,11 @@ type seasonRaw struct {
 		Source string `json:"source"`
 		PTR    bool   `json:"ptr"`
 		Bosses []struct {
-			Boss     string              `json:"boss"`
-			Name     string              `json:"name"`
-			Location string              `json:"location"`
-			All      []string            `json:"all"`
-			ByClass  map[string][]string `json:"byClass"`
+			Boss     string     `json:"boss"`
+			Name     string     `json:"name"`
+			Location string     `json:"location"`
+			All      []string   `json:"all"`
+			ByClass  classLists `json:"byClass"`
 		} `json:"bosses"`
 	} `json:"loot"`
 	LootMaxroll struct {
@@ -499,4 +499,17 @@ func buildLoot(v *SeasonView, s *seasonRaw) {
 	for _, id := range order {
 		v.Bosses = append(v.Bosses, bosses[id])
 	}
+}
+
+// PHP manda [] al posto di {} quando la mappa è vuota
+type classLists map[string][]string
+
+func (m *classLists) UnmarshalJSON(b []byte) error {
+	var x map[string][]string
+	if json.Unmarshal(b, &x) == nil {
+		*m = x
+	} else {
+		*m = classLists{}
+	}
+	return nil
 }

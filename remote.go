@@ -230,7 +230,7 @@ func remoteStatus() map[string]any {
 var serverFiles = []string{"lib.php", "run.php", "data.php", "ping.php", "index.php", "app.php"}
 
 func serverSyncLoop() {
-	time.Sleep(20 * time.Second)
+	time.Sleep(5 * time.Second)
 	for {
 		syncServerFiles()
 		time.Sleep(time.Minute)

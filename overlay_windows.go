@@ -9,6 +9,8 @@ package main
 // Scorciatoie (attive solo con l'overlay visibile):
 //   Ctrl+Shift+O  mostra/nasconde tutto      Ctrl+Shift+P  paragon      Ctrl+Shift+T  timer
 //   Ctrl+Shift+E  sposta i riquadri          Ctrl+Shift+←/→  tavola precedente/successiva
+//   tenendo premuto il tasto scelto (Alt sinistro di base) i riquadri si spostano col mouse
+//   e il lucchetto in alto a destra li blocca
 //   Ctrl+Shift+↑/↓  fase del paragon (es. Rush → Endgame)
 //   Ctrl+Shift+R / Q  ruota la tavola del riquadro in senso orario / antiorario
 //   Ctrl+Shift+M  automatico ↔ riquadro sempre visibile
@@ -87,6 +89,13 @@ type paintStruct struct {
 }
 
 var (
+	pGetAsyncKeyState = u32.NewProc("GetAsyncKeyState")
+	ovMove            bool // tasto per spostare tenuto premuto
+	ovAlpha           int
+	ovLocks           = map[string]rect{}
+)
+
+var (
 	ovHwnd    uintptr
 	ovW, ovH  int32
 	ovVisible bool
@@ -162,6 +171,18 @@ func ovFont(size int, bold bool) uintptr {
 	face, _ := syscall.UTF16PtrFromString("Segoe UI")
 	f, _, _ := pCreateFont.Call(uintptr(-size), 0, 0, 0, uintptr(w), 0, 0, 0, 1, 0, 0, 5, 0, uintptr(unsafe.Pointer(face)))
 	ovFonts[key] = f
+	return f
+}
+
+var symFonts = map[int]uintptr{}
+
+func symFont(size int) uintptr {
+	if f, ok := symFonts[size]; ok {
+		return f
+	}
+	face, _ := syscall.UTF16PtrFromString("Segoe UI Emoji")
+	f, _, _ := pCreateFont.Call(uintptr(-size), 0, 0, 0, 400, 0, 0, 0, 1, 0, 0, 5, 0, uintptr(unsafe.Pointer(face)))
+	symFonts[size] = f
 	return f
 }
 
@@ -255,15 +276,39 @@ func paintOverlay(hdc uintptr) {
 	if o.Paragon.On {
 		hits["paragon"] = drawParagon(mem, o, sc, k)
 	}
-	if ovEdit {
-		for _, r := range hits {
-			if r.r > r.l {
-				ovDash(mem, r, cAcc2)
+	locks := map[string]rect{}
+	if ovEdit || ovMove {
+		for key, r := range hits {
+			if r.r <= r.l {
+				continue
 			}
+			locked := key == "timers" && o.Timers.Lock || key == "paragon" && o.Paragon.Lock
+			c := cAcc2
+			if locked {
+				c = cMute
+			}
+			ovDash(mem, r, c)
+			lr := rect{r.r - sc(30), r.t + sc(4), r.r - sc(6), r.t + sc(26)}
+			bg := cHead
+			if locked {
+				bg = cAcc
+			}
+			ovRound(mem, lr, sc(8), bg, cBorder)
+			sym := "\U0001F513" // lucchetto aperto
+			if locked {
+				sym = "\U0001F512"
+			}
+			ovText(mem, sym, lr, cInk, symFont(int(12*k)), dtCenter)
+			locks[key] = lr
 		}
-		ovRound(mem, rect{ovW/2 - sc(230), sc(14), ovW/2 + sc(230), sc(50)}, sc(14), cHead, cAcc)
-		ovText(mem, "Trascina i riquadri · rotellina = grandezza paragon · Ctrl+Shift+E per finire", rect{ovW/2 - sc(230), sc(14), ovW/2 + sc(230), sc(50)}, cInk, ovFont(int(13*k), true), dtCenter)
+		msg := "Trascina i riquadri · lucchetto = blocca · rotellina = grandezza paragon"
+		if ovEdit {
+			msg += " · Ctrl+Shift+E per finire"
+		}
+		ovRound(mem, rect{ovW/2 - sc(260), sc(14), ovW/2 + sc(260), sc(50)}, sc(14), cHead, cAcc)
+		ovText(mem, msg, rect{ovW/2 - sc(260), sc(14), ovW/2 + sc(260), sc(50)}, cInk, ovFont(int(13*k), true), dtCenter)
 	}
+	ovLocks = locks
 	ovHits = hits
 	pBitBlt.Call(hdc, 0, 0, uintptr(ovW), uintptr(ovH), mem, 0, 0, srcCopy)
 	pSelectObject.Call(mem, old)
@@ -738,6 +783,11 @@ func setOverlayHotkeys(on bool) {
 
 func setOverlayEdit(on bool) {
 	ovEdit = on
+	setClickable(ovEdit || ovMove)
+}
+
+// l'overlay riceve i clic solo mentre sposti i riquadri; il resto del tempo i clic vanno al gioco
+func setClickable(on bool) {
 	ex, _, _ := pGetWindowLongPtr.Call(ovHwnd, ^uintptr(19)) // GWL_EXSTYLE (-20)
 	if on {
 		ex &^= wsExTransparent
@@ -749,8 +799,30 @@ func setOverlayEdit(on bool) {
 
 func overlayTick() {
 	o := getSettings().Overlay
-	show := o.Enabled && !ovHideAll && (o.Always || diabloForeground() || ovEdit)
-	hot := o.Enabled && (o.Always || diabloForeground() || ovEdit)
+	fg := diabloForeground()
+	// trasparenza di tutto l'overlay
+	a := clampInt(o.Opacity, 20, 100)
+	if a != ovAlpha {
+		ovAlpha = a
+		pSetLayeredAttr.Call(ovHwnd, keyColor, uintptr(a*255/100), lwaColorKey|0x2) // COLORKEY | ALPHA
+	}
+	// tasto tenuto premuto: si possono spostare e bloccare i riquadri
+	held := false
+	if o.Enabled && o.MoveKey > 0 && (fg || o.Always || ovMove) {
+		st, _, _ := pGetAsyncKeyState.Call(uintptr(o.MoveKey))
+		held = st&0x8000 != 0
+	}
+	if held != ovMove {
+		ovMove = held
+		if !held && ovDrag != "" {
+			ovDrag = ""
+			pReleaseCapture.Call()
+			saveSettings()
+		}
+		setClickable(ovEdit || ovMove)
+	}
+	show := o.Enabled && !ovHideAll && (o.Always || fg || ovEdit || ovMove)
+	hot := o.Enabled && (o.Always || fg || ovEdit)
 	setOverlayHotkeys(hot)
 	if show != ovVisible {
 		ovVisible = show
@@ -763,10 +835,13 @@ func overlayTick() {
 			}
 		}
 	}
-	if show {
+	ovTicks++
+	if show && (ovEdit || ovMove || ovTicks%5 == 0) {
 		pInvalidateRect.Call(ovHwnd, 0, 0)
 	}
 }
+
+var ovTicks int
 
 func overlayHotkey(id int) {
 	switch id {
@@ -852,14 +927,30 @@ func ovWndProc(hwnd, msg, wparam, lparam uintptr) uintptr {
 	case 0x0312: // WM_HOTKEY
 		overlayHotkey(int(wparam))
 		return 0
-	case 0x0201: // WM_LBUTTONDOWN: inizia a trascinare un riquadro
-		if ovEdit {
+	case 0x0201: // WM_LBUTTONDOWN: lucchetto oppure inizia a trascinare un riquadro
+		if ovEdit || ovMove {
 			x, y := int32(int16(lparam&0xFFFF)), int32(int16(lparam>>16&0xFFFF))
-			for key, r := range ovHits {
-				if x >= r.l && x <= r.r && y >= r.t && y <= r.b {
-					ovDrag, ovDragDX, ovDragDY = key, x-r.l, y-r.t
-					pSetCapture.Call(hwnd)
+			in := func(r rect) bool { return x >= r.l && x <= r.r && y >= r.t && y <= r.b }
+			for key, r := range ovLocks {
+				if in(r) {
+					updateSettings(func(s *Settings) {
+						if key == "timers" {
+							s.Overlay.Timers.Lock = !s.Overlay.Timers.Lock
+						} else {
+							s.Overlay.Paragon.Lock = !s.Overlay.Paragon.Lock
+						}
+					})
+					pInvalidateRect.Call(hwnd, 0, 0)
+					return 0
 				}
+			}
+			o := getSettings().Overlay
+			for key, r := range ovHits {
+				if !in(r) || key == "timers" && o.Timers.Lock || key == "paragon" && o.Paragon.Lock {
+					continue
+				}
+				ovDrag, ovDragDX, ovDragDY = key, x-r.l, y-r.t
+				pSetCapture.Call(hwnd)
 			}
 		}
 		return 0
@@ -879,7 +970,7 @@ func ovWndProc(hwnd, msg, wparam, lparam uintptr) uintptr {
 		}
 		return 0
 	case 0x020A: // WM_MOUSEWHEEL: grandezza del riquadro paragon mentre sposti
-		if ovEdit {
+		if ovEdit || ovMove {
 			delta := int16(wparam >> 16)
 			updateSettings(func(s *Settings) { resizeCells(&s.Overlay, delta > 0, 1) })
 			pInvalidateRect.Call(hwnd, 0, 0)
@@ -912,12 +1003,12 @@ func startOverlay() {
 		log.Printf("overlay: finestra non creata")
 		return
 	}
-	pSetLayeredAttr.Call(ovHwnd, keyColor, 0, lwaColorKey)
+	pSetLayeredAttr.Call(ovHwnd, keyColor, 255, lwaColorKey|0x2)
 	// l'overlay non compare nelle catture dello schermo (così il riconoscimento vede solo il gioco)
 	if p := u32.NewProc("SetWindowDisplayAffinity"); p.Find() == nil {
 		p.Call(ovHwnd, 0x11) // WDA_EXCLUDEFROMCAPTURE
 	}
-	pSetTimer.Call(ovHwnd, 1, 500, 0)
+	pSetTimer.Call(ovHwnd, 1, 100, 0)
 	go autoDetectLoop()
 	var m msgT
 	for {

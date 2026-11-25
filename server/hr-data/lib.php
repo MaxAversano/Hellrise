@@ -316,7 +316,7 @@ function step_d4builds() {
         foreach (($tables ?: []) as $t) {
             $by = [];
             foreach (CLASSES as $c) if (!empty($t[$c])) $by[$c] = array_values($t[$c]);
-            $out[] = ['boss' => $t['boss'] ?? '', 'name' => $t['name'] ?? ($t['boss'] ?? ''), 'location' => $t['location'] ?? '', 'all' => array_values($t['all'] ?? []), 'byClass' => $by];
+            $out[] = ['boss' => $t['boss'] ?? '', 'name' => $t['name'] ?? ($t['boss'] ?? ''), 'location' => $t['location'] ?? '', 'all' => array_values($t['all'] ?? []), 'byClass' => (object)$by];
         }
         return $out;
     };

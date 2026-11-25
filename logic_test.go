@@ -2,6 +2,7 @@ package main
 
 import (
 	"encoding/json"
+	"os"
 	"testing"
 	"time"
 )
@@ -110,5 +111,27 @@ func TestDetectBoard(t *testing.T) {
 	t.Logf("%+v", d)
 	if !d.OK || d.Rot != 1 || absf(d.X-float64(ox)) > 3 || absf(d.Y-float64(oy)) > 3 || absf(d.Cell-float64(P)) > 1 {
 		t.Fatalf("tavola non riconosciuta bene")
+	}
+}
+
+func TestRealSeason(t *testing.T) {
+	b, err := os.ReadFile("testdata/s15.json")
+	if err != nil {
+		t.Skip()
+	}
+	var s seasonRaw
+	if err := json.Unmarshal(b, &s); err != nil {
+		t.Fatal(err)
+	}
+	v := buildView(&s)
+	tiers := 0
+	for _, x := range v.Builds {
+		if x.Tier != "" {
+			tiers++
+		}
+	}
+	t.Logf("build %d (con tier %d), oggetti %d, boss %d", len(v.Builds), tiers, len(v.Items), len(v.Bosses))
+	if len(v.Builds) < 50 || len(v.Items) < 50 {
+		t.Fatal("troppo pochi dati")
 	}
 }

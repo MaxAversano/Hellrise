@@ -30,9 +30,10 @@ type Settings struct {
 }
 
 type OWidget struct {
-	On bool    `json:"on"`
-	X  float64 `json:"x"` // 0..1 frazione dello schermo
-	Y  float64 `json:"y"`
+	On   bool    `json:"on"`
+	Lock bool    `json:"lock"` // bloccato: non si sposta
+	X    float64 `json:"x"`    // 0..1 frazione dello schermo
+	Y    float64 `json:"y"`
 }
 
 // overlay in gioco (Diablo IV in finestra senza bordi)
@@ -55,7 +56,9 @@ type OverlaySet struct {
 	CellPx    float64        `json:"cellPx"` // passo delle caselle sullo schermo in pixel (modalità sovrapposta)
 	AlignX    float64        `json:"alignX"` // angolo in alto a sinistra della griglia (frazione dello schermo)
 	AlignY    float64        `json:"alignY"`
-	Rot       map[string]int `json:"rot"` // rotazione scelta da te per ogni tavola (quarti di giro)
+	Rot       map[string]int `json:"rot"`     // rotazione scelta da te per ogni tavola (quarti di giro)
+	Opacity   int            `json:"opacity"` // 20-100 %
+	MoveKey   int            `json:"moveKey"` // tasto da tenere premuto per spostare e bloccare i riquadri (codice virtuale Windows)
 }
 
 func defaultSettings() Settings {
@@ -64,7 +67,7 @@ func defaultSettings() Settings {
 		Notifications: true, NotifyBoss: true, NotifyHelltide: false, NotifyLegion: false, NotifyBefore: 5,
 		Blur: true, Motion: true, Accent: "ember", Lang: "it",
 		Overlay: OverlaySet{Enabled: true, Scale: 1, Timers: OWidget{On: true, X: 0.012, Y: 0.28}, TBoss: true, THelltide: true, TLegion: true,
-			Paragon: OWidget{On: true, X: 0.69, Y: 0.14}, Cell: 13, Mode: "auto", CellPx: 40, AlignX: 0.3, AlignY: 0.2},
+			Paragon: OWidget{On: true, X: 0.69, Y: 0.14}, Cell: 13, Mode: "auto", Opacity: 92, MoveKey: 0xA4, CellPx: 40, AlignX: 0.3, AlignY: 0.2},
 	}
 }
 
@@ -80,6 +83,15 @@ func loadSettings() {
 	readJSON(settingsPath(), &s)
 	if s.RemoteToken == "" {
 		s.RemoteToken = betterStompToken()
+	}
+	if s.Overlay.Opacity <= 0 {
+		s.Overlay.Opacity = 92
+	}
+	if s.Overlay.MoveKey == 0 {
+		s.Overlay.MoveKey = 0xA4
+	}
+	if s.Lang == "" {
+		s.Lang = "it"
 	}
 	if s.NotifyBefore <= 0 {
 		s.NotifyBefore = 5
