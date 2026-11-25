@@ -52,6 +52,7 @@ var (
 	pSetBkMode           = g32.NewProc("SetBkMode")
 	pGetStockObject      = g32.NewProc("GetStockObject")
 	pRectangle           = g32.NewProc("Rectangle")
+	pEllipse             = g32.NewProc("Ellipse")
 	pGetDC               = u32.NewProc("GetDC")
 	pReleaseDC           = u32.NewProc("ReleaseDC")
 	pGetDIBits           = g32.NewProc("GetDIBits")
@@ -751,6 +752,18 @@ func rotLabel(r int) string {
 }
 
 // cornice vuota (per segnare le caselle senza coprire quelle del gioco)
+// anello attorno a un nodo (le caselle da prendere), più pulito delle cornici quadrate
+func ovRing(hdc uintptr, r rect, t int32, color uintptr) {
+	pen, _, _ := pCreatePen.Call(0, uintptr(t), color)
+	op, _, _ := pSelectObject.Call(hdc, pen)
+	nb, _, _ := pGetStockObject.Call(5) // NULL_BRUSH
+	ob, _, _ := pSelectObject.Call(hdc, nb)
+	pEllipse.Call(hdc, uintptr(r.l), uintptr(r.t), uintptr(r.r), uintptr(r.b))
+	pSelectObject.Call(hdc, ob)
+	pSelectObject.Call(hdc, op)
+	pDeleteObject.Call(pen)
+}
+
 func ovFrame(hdc uintptr, r rect, t int32, color uintptr) {
 	ovFill(hdc, rect{r.l, r.t, r.r, r.t + t}, color)
 	ovFill(hdc, rect{r.l, r.b - t, r.r, r.b}, color)
@@ -802,9 +815,9 @@ func drawParagonAligned(hdc uintptr, o OverlaySet, sc func(float64) int32, k flo
 	if warn != "" {
 		ovText(hdc, warn, rect{lx + sc(10), ly + sc(24), lx + lw - sc(10), ly + lh - sc(4)}, cAcc2, ovFont(int(12*k), true), dtLeft|0x8000)
 	}
-	t := int32(cp / 12)
-	if t < 2 {
-		t = 2
+	t := int32(cp / 10)
+	if t < 3 {
+		t = 3
 	}
 	frames := func(cells, sel string, w int, ox, oy float64) {
 		for i := 0; i < len(cells) && i < len(sel); i++ {
@@ -815,10 +828,12 @@ func drawParagonAligned(hdc uintptr, o OverlaySet, sc func(float64) int32, k flo
 			y0 := int32(oy + float64(i/w)*cp)
 			x1 := int32(ox + float64(i%w+1)*cp)
 			y1 := int32(oy + float64(i/w+1)*cp)
-			if x1 < 0 || y1 < 0 || x0 > ovW || y0 > ovH {
+			// solo dentro la zona della mappa del paragon: non sopra le schede in alto, la barra in basso
+			// e il pannello di statistiche e glifi a sinistra
+			if y0 < ovH*7/100 || y1 > ovH*94/100 || x0 < ovW*20/100 || x1 > ovW {
 				continue
 			}
-			ovFrame(hdc, rect{x0 + 1, y0 + 1, x1 - 1, y1 - 1}, t, cellCol[cells[i]][1])
+			ovRing(hdc, rect{x0 + 1, y0 + 1, x1 - 1, y1 - 1}, t, cellCol[cells[i]][1])
 		}
 	}
 	frames(cells, sel, w, det.X, det.Y)
@@ -842,7 +857,7 @@ func drawParagonAligned(hdc uintptr, o OverlaySet, sc func(float64) int32, k flo
 		}
 		tx, ty := int32(ox+cp*0.3), int32(oy+cp*0.3) // nell'angolo in alto a sinistra, dove la tavola è vuota
 		tr := rect{tx, ty, tx + sc(250), ty + sc(24)}
-		if tr.t > 0 && tr.b < ovH {
+		if tr.t > ovH*7/100 && tr.b < ovH*94/100 && tr.l > ovW*20/100 {
 			ovRound(hdc, tr, sc(10), cPanel, cBorder)
 			ovText(hdc, tag, tr, cInk, ovFont(int(11*k), true), dtCenter)
 			ovTags = append(ovTags, tr)
@@ -917,6 +932,16 @@ func autoDetectLoop() {
 			g, w, h = halfGray(g, w, h)
 			f = 2
 		}
+		// se lo schermo non è cambiato (non hai spostato né zoomato la mappa) la tavola resta dov'è:
+		// niente nuova ricerca, così le cornici non ballano
+		th := thumb(g, w, h)
+		if locked && thumbDiff(th, lastThumb) < 2.5 {
+			det.Lock()
+			det.at = time.Now()
+			det.Unlock()
+			continue
+		}
+		lastThumb = th
 		minP, maxP := max(10, h*12/1080), h*140/1080
 		if locked {
 			minP, maxP = int(lastP/f*0.95), int(lastP/f*1.05+1)
@@ -985,6 +1010,41 @@ func autoDetectLoop() {
 }
 
 var detLogAt time.Time
+
+var lastThumb []float64
+
+// immagine piccolissima dello schermo (64x36) per capire se è cambiato
+func thumb(g []float64, w, h int) []float64 {
+	const tw, thh = 64, 36
+	out := make([]float64, tw*thh)
+	for y := 0; y < thh; y++ {
+		for x := 0; x < tw; x++ {
+			var s float64
+			n := 0
+			for yy := y * h / thh; yy < (y+1)*h/thh; yy += 2 {
+				for xx := x * w / tw; xx < (x+1)*w/tw; xx += 2 {
+					s += g[yy*w+xx]
+					n++
+				}
+			}
+			if n > 0 {
+				out[y*tw+x] = s / float64(n)
+			}
+		}
+	}
+	return out
+}
+
+func thumbDiff(a, b []float64) float64 {
+	if len(a) != len(b) || len(a) == 0 {
+		return 1e9
+	}
+	var s float64
+	for i := range a {
+		s += absf(a[i] - b[i])
+	}
+	return s / float64(len(a))
+}
 
 func ovMoveHeld() bool { return ovMove }
 
