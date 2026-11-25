@@ -64,7 +64,7 @@
         eff: A(t, '[class*="__effects"] > li').map(T)
       };
       const set = t.querySelector('[class*="__set"]');
-      if (set) out.set = { n: T(set.querySelector('[class*="__set__header"]')), pieces: A(set, '[class*="__set__piece"]').map(x => [T(x), /active/.test(x.className) ? 1 : 0]), bon: A(set, '[class*="__set__bonus"]').filter(x => x.querySelector('[class*="__count"]')).map(x => [T(x.querySelector('[class*="__count"]')), T(x.querySelector('[class*="__bonus__value"]')), /active/.test(x.className) ? 1 : 0]) };
+      if (set) out.set = { n: T(set.querySelector('[class*="__set__header"]')), pieces: A(set, '[class*="__set__piece"]:not([class*="__set__pieces"])').map(x => [T(x), /active/.test(x.className) ? 1 : 0]), bon: A(set, '[class*="__set__bonus"]:not([class*="__set__bonuses"])').filter(x => x.querySelector('[class*="__count"]')).map(x => [T(x.querySelector('[class*="__count"]')), T(x.querySelector('[class*="__bonus__value"]')), /active/.test(x.className) ? 1 : 0]) };
     }
     fire(el, 'mouseout'); fire(el, 'mouseleave'); fire(im, 'mouseout'); fire(im, 'mouseleave');
     await waitFor(() => !document.querySelector(sel), 800);

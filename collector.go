@@ -242,7 +242,11 @@ func collect() {
 		for _, u := range urls {
 			setStep(fmt.Sprintf("D4Builds · stagione %d", n), -1, -1)
 			var d *PBuild
+			t0 := time.Now()
 			f, err := d4bFullRead(u)
+			if err == nil && time.Since(t0) > 2*time.Second {
+				log.Printf("raccolta: d4builds %s letta in %ds", strings.TrimPrefix(keyURL(u), "https://d4builds.gg/builds/"), int(time.Since(t0).Seconds()))
+			}
 			if err == nil {
 				d = f.slim()
 				if e := uploadFull(u, f); e != nil {

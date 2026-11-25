@@ -98,7 +98,9 @@ async function poll() {
     const dataArrived = (S.st.remote?.at || 0) !== (st.remote?.at || 0);
     S.st = st;
     if (seasonsChanged || dataArrived) { S.builds = {}; S.loot = {}; renderSeasonPick(); }
-    if ((seasonsChanged || namesArrived || (dataArrived && ['build', 'drop', 'home'].includes(S.page) && !S.ui.loadingBuild)) && !document.querySelector('input:focus,textarea:focus,select:focus')) route();
+    // dati nuovi: si ridisegna solo se la pagina era ancora vuota (così la raccolta non fa saltare la pagina mentre la leggi)
+    const waiting = !!document.querySelector('#main .empty, #main .skel, #main .glass.empty');
+    if ((seasonsChanged || namesArrived || (dataArrived && ['build', 'drop', 'home'].includes(S.page) && waiting)) && !document.querySelector('input:focus,textarea:focus,select:focus')) { const y = $('#main').scrollTop; route(); if (!seasonsChanged) requestAnimationFrame(() => { $('#main').scrollTop = y; }); }
     updBar(st.update);
     collectBar(st.collector);
   } catch { }
@@ -458,7 +460,7 @@ function charmsHTML(view, v) {
       ${t.eff?.length ? `<div class="ceff">${t.eff.map(e => `<p>${esc(e)}</p>`).join('')}</div>` : ''}</div>`;
   };
   const cards = list.map(card).join('');
-  const setHTML = Object.values(sets).map(st => { const have = st.pieces.filter(p => p[1]).length; return `<div class="cset"><div class="h"><b>${esc(st.n)}</b><span class="badge">${have}/${st.pieces.length} pezzi</span></div><div class="cpieces">${st.pieces.map(p => `<span class="${p[1] ? 'on' : ''}">${esc(TN(view, p[0], ''))}</span>`).join('')}</div>${st.bon.map(b => `<div class="cbon ${b[2] ? 'on' : ''}"><em>${esc(b[0].replace('Set:', 'set:'))}</em> ${esc(b[1])}</div>`).join('')}</div>`; }).join('');
+  const setHTML = Object.values(sets).map(st => { st = { ...st, pieces: st.pieces.filter(p => !st.pieces.some(q => q !== p && q[0] !== p[0] && p[0].includes(q[0]))) }; const have = st.pieces.filter(p => p[1]).length; return `<div class="cset"><div class="h"><b>${esc(st.n)}</b><span class="badge">${have}/${st.pieces.length} pezzi</span></div><div class="cpieces">${st.pieces.map(p => `<span class="${p[1] ? 'on' : ''}">${esc(TN(view, p[0], ''))}</span>`).join('')}</div>${st.bon.map(b => `<div class="cbon ${b[2] ? 'on' : ''}"><em>${esc(b[0].replace('Set:', 'set:'))}</em> ${esc(b[1])}</div>`).join('')}</div>`; }).join('');
   return `<div class="ccards">${cards}</div>${setHTML ? `<div class="csets">${setHTML}</div>` : ''}`;
 }
 function notesHTML(view, notes) {

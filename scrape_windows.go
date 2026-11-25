@@ -11,6 +11,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"log"
+	"os"
 	"path/filepath"
 	"runtime"
 	"sync"
@@ -147,6 +148,9 @@ func scrapeThread() {
 		comCall(env, 3, hwnd, uintptr(unsafe.Pointer(ctrlH)))
 		return 0
 	})
+	// la finestra del lettore è fuori dallo schermo: senza questi flag Edge rallenta i timer della pagina
+	// (anche a un colpo al minuto) e la lettura di una build richiederebbe minuti
+	os.Setenv("WEBVIEW2_ADDITIONAL_BROWSER_ARGUMENTS", "--disable-background-timer-throttling --disable-renderer-backgrounding --disable-backgrounding-occluded-windows --disable-features=CalculateNativeWinOcclusion,IntensiveWakeUpThrottling")
 	ud, _ := syscall.UTF16PtrFromString(filepath.Join(dataDir, "lettore"))
 	if r, _, _ := syscall.SyscallN(create, 1, 0, uintptr(unsafe.Pointer(ud)), 0, uintptr(unsafe.Pointer(envH))); int32(r) < 0 {
 		fail(fmt.Errorf("ambiente WebView2: 0x%08x", uint32(r)))
