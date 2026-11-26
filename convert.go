@@ -1484,3 +1484,78 @@ func fresh(p string, d time.Duration) bool {
 	st, err := os.Stat(p)
 	return err == nil && time.Since(st.ModTime()) < d
 }
+
+// anteprima di un oggetto per la Loot table: potere (unici e mitici), affissi e frase
+type ItemPreview struct {
+	Key    string   `json:"key"`
+	Type   string   `json:"type"`
+	Power  string   `json:"power"`
+	Stats  []string `json:"stats"`
+	Flavor string   `json:"flavor"`
+	Level  int      `json:"level"`
+}
+
+var flavorCache struct {
+	sync.Mutex
+	d *gameData
+	m map[string]string
+}
+
+func itemPreview(k string) ItemPreview {
+	out := ItemPreview{Key: k}
+	g := gxLoad()
+	if g == nil {
+		return out
+	}
+	gi, ok := g.items[k]
+	if !ok {
+		return out
+	}
+	out.Type = gi.Type
+	en := getSettings().Lang == "en"
+	for i, ex := range gi.Explicits {
+		a, ok := g.affixKey[ex]
+		if !ok {
+			continue
+		}
+		t := a.DescIt
+		if en || t == "" {
+			t = a.DescEn
+		}
+		if t == "" { // affissi senza testo: il nome della statistica
+			t = a.StatIt
+			if en || t == "" {
+				t = a.StatEn
+			}
+		}
+		t = strings.TrimSpace(strings.ReplaceAll(t, "\r\n", " "))
+		if t == "" {
+			continue
+		}
+		if i == 0 || ex == k {
+			out.Power = t
+		} else {
+			out.Stats = append(out.Stats, t)
+		}
+	}
+	flavorCache.Lock()
+	if flavorCache.d != getGD() || flavorCache.m == nil {
+		var lang struct {
+			Items map[string]struct {
+				Flavor string `json:"flavor"`
+			} `json:"items"`
+		}
+		flavorCache.m = map[string]string{}
+		if readJSON(cacheFile("data.itit.json"), &lang) == nil {
+			for id, x := range lang.Items {
+				if x.Flavor != "" {
+					flavorCache.m[id] = strings.TrimSpace(strings.ReplaceAll(x.Flavor, "\r\n", " "))
+				}
+			}
+		}
+		flavorCache.d = getGD()
+	}
+	out.Flavor = flavorCache.m[k]
+	flavorCache.Unlock()
+	return out
+}

@@ -26,6 +26,7 @@ type Settings struct {
 	Pinned         *PinnedBuild `json:"pinned"`      // la build che stai giocando: comanda l'overlay
 	Bookmarks      []Bookmark   `json:"bookmarks"`   // preferiti del browser dei siti (solo in Hellrise)
 	BrowserHome    string       `json:"browserHome"` // ultimo sito scelto nel browser
+	TierHome       string       `json:"tierHome"`    // ultimo sito scelto per la tier list
 	Blur           bool         `json:"blur"`        // effetto vetro più marcato
 	Motion         bool         `json:"motion"`      // animazioni dello sfondo
 	Accent         string       `json:"accent"`      // colore principale

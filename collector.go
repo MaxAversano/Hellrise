@@ -141,6 +141,9 @@ func collectLoop() {
 	}
 }
 
+// scaricare in anticipo i dettagli di tutte le build (spento)
+const collectDetails = false
+
 func collect() {
 	collectState.Lock()
 	if collectState.Running {
@@ -206,6 +209,13 @@ func collect() {
 		}
 	}
 
+	// 2) e 3) i dettagli completi delle build non si scaricano più tutti in anticipo (ore di lavoro):
+	// le build si guardano sui siti dentro l'app e si leggono solo quando le apri
+	if !collectDetails {
+		bySeason = nil
+		d4bURLs = nil
+		nD4b = 0
+	}
 	// 2) dettagli delle build Mobalytics
 	nMoba := 0
 	for _, l := range bySeason {

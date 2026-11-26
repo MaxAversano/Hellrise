@@ -158,6 +158,11 @@ func setupAPI(mux *http.ServeMux) {
 		w.Write(b)
 	})
 
+	// anteprima di un oggetto (potere e affissi dai dati di gioco)
+	mux.HandleFunc("/api/item", func(w http.ResponseWriter, r *http.Request) {
+		jsonOut(w, itemPreview(r.URL.Query().Get("k")))
+	})
+
 	// browser dei siti di build dentro la finestra dell'app
 	mux.HandleFunc("/api/browser", func(w http.ResponseWriter, r *http.Request) {
 		q := r.URL.Query()

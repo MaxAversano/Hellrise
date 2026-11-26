@@ -7,6 +7,7 @@ package main
 // di Hellrise, quindi non tocca i browser installati.
 
 import (
+	"log"
 	"strings"
 	"sync"
 	"syscall"
@@ -37,6 +38,34 @@ var br struct {
 	bounds   rect
 	pending  string
 	keep     []any
+	before   map[uintptr]bool // finestre figlie prima di creare il browser
+	child    uintptr          // la finestra del browser (va tenuta sopra la pagina dell'app)
+}
+
+var pGetWindow = u32.NewProc("GetWindow")
+
+func childWindows(h uintptr) map[uintptr]bool {
+	out := map[uintptr]bool{}
+	c, _, _ := pGetWindow.Call(h, 5) // GW_CHILD
+	for c != 0 {
+		out[c] = true
+		c, _, _ = pGetWindow.Call(c, 2) // GW_HWNDNEXT
+	}
+	return out
+}
+
+// il browser dei siti sta sopra la pagina dell'app
+func brRaise() {
+	if br.child == 0 && br.before != nil {
+		for c := range childWindows(wvHwnd) {
+			if !br.before[c] {
+				br.child = c
+			}
+		}
+	}
+	if br.child != 0 {
+		pSetWindowPos.Call(br.child, 0, 0, 0, 0, 0, 0x0001|0x0002|0x0010) // HWND_TOP, NOSIZE|NOMOVE|NOACTIVATE
+	}
 }
 
 // chiamata dall'interfaccia (thread HTTP): esegue l'operazione sul thread della finestra
@@ -138,6 +167,7 @@ func brCreate() {
 		return
 	}
 	br.creating = true
+	br.before = childWindows(wvHwnd)
 	var ctrlH *comHandler
 	ctrlH = newHandler(func(this, hr, ctrl uintptr) uintptr {
 		br.creating = false
@@ -179,6 +209,8 @@ func brCreate() {
 		} else {
 			comCall(ctrl, 4, 0)
 		}
+		brRaise()
+		log.Printf("browser dei siti pronto (finestra 0x%x)", br.child)
 		u := br.pending
 		if u == "" {
 			u = "https://maxroll.gg/d4/build-guides"
