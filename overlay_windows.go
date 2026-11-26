@@ -305,21 +305,7 @@ func paintOverlay(hdc uintptr) {
 			}
 			ovText(mem, sym, e, c, symFont(int(12*k)), dtCenter)
 			ovEye = e
-			if !o.ParMin && r.b-r.t > sc(60) { // 🔥 accanto all'occhio: allinea al paragon aperto
-				fr := rect{e.l - sc(30), e.t, e.l - sc(6), e.b}
-				ovRound(mem, fr, sc(8), cHead, cBorder)
-				ovText(mem, "\U0001F525", fr, cAcc, symFont(int(12*k)), dtCenter)
-				ovFlame = fr
-			}
 		}
-	}
-	if m := getFlameMsg(); m != "" && o.Paragon.On && !o.ParMin { // esito della fiammella
-		fo := ovFont(int(13*k), true)
-		tw := sc(float64(len([]rune(m)))*7.2 + 40)
-		tr := rect{(ovW - tw) / 2, sc(84), (ovW + tw) / 2, sc(84) + sc(36)}
-		ovRound(mem, tr, sc(14), cPanel, cAcc)
-		ovText(mem, m, tr, cInk, fo, dtCenter)
-		ovTags = append(ovTags, tr)
 	}
 	if o.Rotation.On && len(o.RotLines) > 0 {
 		hits["rotation"] = drawRotation(mem, o, sc, k)
@@ -565,9 +551,6 @@ func drawParagon(hdc uintptr, o OverlaySet, sc func(float64) int32, k float64) r
 	}
 	// automatico: se il paragon del gioco è aperto e riconosciuto, cornici sulla tavola vera;
 	// altrimenti la guida con tutto il paragon della build fissata
-	if d, ok := lastDetect(); ok && d.OK && d.Board >= 0 { // allineato con la fiammella
-		return drawParagonAligned(hdc, o, sc, k)
-	}
 	return drawParagonGuide(hdc, o, sc, k)
 }
 
@@ -745,7 +728,6 @@ func drawParagonGuide(hdc uintptr, o OverlaySet, sc func(float64) int32, k float
 		ly += rowH
 	}
 	hint := "Ctrl+Shift+←/→ tavola · ↑/↓ fase · R/Q ruota"
-	hint += " · paragon aperto: 🔥 Alt+Shift+F"
 	ovText(hdc, hint, rect{x + pad, y + h - foot, x + w - pad, y + h - sc(4)}, cMute, ovFont(int(10*k), false), dtLeft|0x8000)
 	return rect{x, y, x + w, y + h}
 }
@@ -1218,7 +1200,6 @@ func setOverlayHotkeys(on bool) {
 	}
 	if on { // Alt+Shift+P: apre o chiude il paragon (occhietto); Alt+Shift+F: fiammella (allinea)
 		pRegisterHotKey.Call(ovHwnd, 15, 0x0001|modShift|modNoRepeat, 'P')
-		pRegisterHotKey.Call(ovHwnd, 16, 0x0001|modShift|modNoRepeat, 'F')
 	} else {
 		pUnregisterHotKey.Call(ovHwnd, 15)
 		pUnregisterHotKey.Call(ovHwnd, 16)
@@ -1302,8 +1283,7 @@ func overlayTick() {
 		}
 	}
 	ovTicks++
-	_, aligned := lastDetect()
-	if show && (ovEdit || ovMove || aligned || ovTicks%5 == 0) {
+	if show && (ovEdit || ovMove || ovTicks%5 == 0) {
 		pInvalidateRect.Call(ovHwnd, 0, 0)
 	}
 }
@@ -1336,8 +1316,6 @@ func overlayHotkey(id int) {
 		}
 	case 15:
 		updateSettings(func(s *Settings) { s.Overlay.ParMin = !s.Overlay.ParMin })
-	case 16:
-		requestFlame()
 	case 14:
 		updateSettings(func(s *Settings) {
 			if s.Overlay.Mode == "panel" {
@@ -1480,7 +1458,6 @@ func startOverlay() {
 	pSetLayeredAttr.Call(ovHwnd, keyColor, 255, lwaColorKey|0x2)
 	applyCaptureAffinity()
 	pSetTimer.Call(ovHwnd, 1, 100, 0)
-	go autoDetectLoop()
 	var m msgT
 	for {
 		r, _, _ := pGetMessage.Call(uintptr(unsafe.Pointer(&m)), 0, 0, 0)
