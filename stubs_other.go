@@ -34,3 +34,16 @@ func browserDump(u string) (string, error) { return "", fmt.Errorf("solo Windows
 func browserRun(u, ready, start, poll string, timeout time.Duration) (string, error) {
 	return "", fmt.Errorf("solo Windows")
 }
+
+type BrowserState struct {
+	Ready   bool   `json:"ready"`
+	URL     string `json:"url"`
+	Title   string `json:"title"`
+	CanBack bool   `json:"canBack"`
+	CanFwd  bool   `json:"canFwd"`
+	Visible bool   `json:"visible"`
+}
+
+func browserOp(op int, u string, r rect) (BrowserState, bool) { return BrowserState{}, false }
+
+type rect struct{ l, t, r, b int32 }

@@ -21,7 +21,7 @@ async function api(path, opts) {
 const post = (path, body) => api(path, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body) });
 function toast(msg) { const t = $('#toast'); t.textContent = msg; t.classList.add('on'); clearTimeout(t._h); t._h = setTimeout(() => t.classList.remove('on'), 2600); }
 function openLink(u) { if (window.DEMO) window.open(u, '_blank'); else fetch('/api/open?u=' + encodeURIComponent(u)); }
-function openGuide(u) { if (window.DEMO) window.open(u, '_blank'); else fetch('/api/guide?u=' + encodeURIComponent(u)); }
+function openGuide(u) { if (window.DEMO) window.open(u, '_blank'); else { BR.openUrl = u; location.hash = '#/build'; if (S.page === 'build') PAGES.build($('#main')); } }
 async function copy(text, what) { try { await navigator.clipboard.writeText(text); toast((what || 'Testo') + ' copiato'); } catch { toast('Copia non riuscita'); } }
 const lang = () => S.st?.settings?.lang || 'it';
 const nm = (it, en) => (lang() === 'en' ? (en || it) : (it || en)) || '';
@@ -128,8 +128,9 @@ function renderSeasonPick() {
 }
 function route() {
   const p = (location.hash.replace(/^#\/?/, '').split('/')[0]) || 'home';
+  if (S.page === 'build' && p !== 'build') browserHide();
   S.page = p;
-  $$('#side a').forEach(a => a.classList.toggle('on', a.dataset.p === (p === 'b' ? 'build' : p)));
+  $$('#side a').forEach(a => a.classList.toggle('on', a.dataset.p === (p === 'b' || p === 'blist' ? 'build' : p === 'loott' ? 'drop' : p)));
   const fn = PAGES[p] || PAGES.home;
   setTimeout(cmpBar, 0);
   const main = $('#main');
@@ -199,10 +200,10 @@ PAGES.home = async main => {
     <h1 class="pt">Bentornato nel Santuario</h1><p class="sub">Stagione ${S.season || '—'} · ${esc(seasonLabel())}</p>
     <div class="hero">${card('boss', 'Boss del mondo')}${card('helltide', 'Marea infernale')}${card('legion', 'Legione')}</div>
     <div class="home2">
-      <div class="glass card"><h2>Le migliori build ora <span class="count">tier list di Rob2628</span><span class="sp"></span><a class="link" href="#/build" style="font-size:12.5px">Tutte le build →</a></h2><div class="mini" id="topb"><div class="skel" style="height:220px"></div></div></div>
+      <div class="glass card"><h2>Le migliori build ora <span class="count">tier list di Rob2628</span><span class="sp"></span><a class="link" href="#/blist" style="font-size:12.5px">Tutte le build →</a></h2><div class="mini" id="topb"><div class="skel" style="height:220px"></div></div></div>
       <div class="grid" style="align-content:start">
         <div class="glass card"><h2>Dalla patch per te</h2><div id="hpatch"><div class="skel" style="height:60px"></div></div></div>
-        <div class="glass card"><h2>Le tue build <span class="sp"></span><a class="link" href="#/build" style="font-size:12.5px">Tutte →</a></h2><div id="hsaved"></div></div>
+        <div class="glass card"><h2>Le tue build <span class="sp"></span><a class="link" href="#/blist" style="font-size:12.5px">Tutte →</a></h2><div id="hsaved"></div></div>
         <div class="glass card"><h2>Leveling consigliato <span class="count">${esc(clsName(S.cls))}</span></h2><div class="mini" id="topl"><div class="skel" style="height:60px"></div></div></div>
         <div class="glass card"><h2>Ultima patch</h2><div id="lastp"><div class="skel" style="height:60px"></div></div></div>
         <div class="glass card"><h2>Stato dei dati</h2><div id="dstat"></div></div>
@@ -215,8 +216,8 @@ PAGES.home = async main => {
     const b = await getBuilds(S.season);
     const rob = b.rob?.tier || [];
     $('#topb').innerHTML = rob.length ? rob.slice(0, 8).map(r => `<div class="mrow" data-cls="${r.cls}">${tierBadge(r.tier, r.cls)}<div class="t"><b>${esc(r.build)}</b><small>${esc(clsName(r.cls))}${r.info ? ' · ' + esc(r.info) : ''}</small></div><span class="ci" style="color:var(--mute)">${clsIcon(r.cls, 18)}</span></div>`).join('') : '<div class="muted">Tier list non ancora disponibile per questa stagione.</div>';
-    $('#toplrow')?.addEventListener('click', () => { if (lv?.maxroll) { (S.ui.build ||= { type: 'Endgame', src: 'all', variant: 0 }).variantName = 'level'; openBuildPage(lv.maxroll); } else location.hash = '#/build'; });
-    $$('#topb .mrow').forEach(r => r.onclick = () => { setCls(r.dataset.cls); location.hash = '#/build'; });
+    $('#toplrow')?.addEventListener('click', () => { if (lv?.maxroll) { (S.ui.build ||= { type: 'Endgame', src: 'all', variant: 0 }).variantName = 'level'; openBuildPage(lv.maxroll); } else location.hash = '#/blist'; });
+    $$('#topb .mrow').forEach(r => r.onclick = () => { setCls(r.dataset.cls); location.hash = '#/blist'; });
     const lv = levelingPick(b, S.cls);
     $('#topl').innerHTML = lv ? `<div class="mrow" id="toplrow">${tierBadge(lv.tier, S.cls)}<div class="t"><b>${esc(lv.title)}</b><small>${esc(lv.info || lv.src)}</small></div></div>` : '<div class="muted">Nessuna build leveling per questa classe.</div>';
   } catch (e) { $('#topb').innerHTML = noData(e.message); $('#topl').innerHTML = ''; }
@@ -245,10 +246,10 @@ function levelingPick(b, cls) {
 }
 
 // ---------------------------------------------------------------- build
-PAGES.build = async main => {
+PAGES.blist = async main => {
   const ui = S.ui.build ||= { type: 'Endgame', src: 'all', variant: 0 };
   main.innerHTML = `<div class="page">
-    <div class="hdr"><div><h1 class="pt">Build</h1><p class="sub" style="margin:0">Maxroll, D4Builds e Mobalytics, con la tier list di Rob2628 · stagione ${S.season || '—'}</p></div></div>
+    <div class="hdr"><div><h1 class="pt">Elenco build</h1><p class="sub" style="margin:0">Maxroll, D4Builds e Mobalytics, con la tier list di Rob2628 · stagione ${S.season || '—'}</p></div><span class="sp"></span><a class="btn" href="#/build">🌐 Sfoglia i siti</a></div>
     <div id="saved"></div>
     <div class="classes">${CLASSES.map(([c]) => `<div class="cls ${c === S.cls ? 'on' : ''}" data-c="${c}"><span class="ci">${clsIcon(c)}</span>${esc(clsName(c))}</div>`).join('')}</div>
     <div id="lvb"></div>
@@ -338,11 +339,11 @@ PAGES.b = async main => {
   let b = keyU(ui.cur?.url) === keyU(url) ? ui.cur : null;
   for (const n of [S.season, ...(S.st.seasons || []).map(x => x.n)]) { if (b) break; try { const d = await getBuilds(n); if (n === S.season) ui.all = d.builds; b = d.builds.find(x => keyU(x.url) === keyU(url)); } catch { } }
   if (!b) { const sv = savedList().find(x => keyU(x.url) === keyU(url)); if (sv) b = { src: sv.src, title: sv.title, cls: sv.cls, type: sv.type, url: sv.url, profile: sv.profile }; }
-  if (!b) { location.hash = '#/build'; return; }
+  if (!b) { location.hash = '#/blist'; return; }
   if (ui.openUrl !== url) openBuildPage(b);
   ui.cur = b;
   main.innerHTML = `<div class="page"><div class="row" style="gap:8px;margin-bottom:12px"><button class="btn" id="bback">← Torna alle build</button><span class="muted" style="font-size:12.5px">${esc(clsName(b.cls))} · stagione ${b.fromSeason || S.season}</span></div><div class="glass bdetail" id="bdet"></div></div>`;
-  $('#bback').onclick = () => { location.hash = '#/build'; };
+  $('#bback').onclick = () => { location.hash = '#/blist'; };
   const sv = savedOf(url);
   if (sv && b.updated && b.updated > (sv.seen || 0)) { if (sv.seen) toast('Questa build è stata aggiornata il ' + dateLbl(b.updated)); touchSaved(url, { seen: b.updated }); }
   showBuild(b);
@@ -964,7 +965,7 @@ PAGES.cmp = async main => {
   const l = cmpList();
   cmpBar();
   main.innerHTML = `<div class="page"><div class="row" style="gap:8px;margin-bottom:12px"><button class="btn" id="cback">← Torna alle build</button><h1 class="pt" style="margin:0 0 0 6px;font-size:24px">Confronto</h1></div><div id="cbody"><div class="skel" style="height:400px"></div></div></div>`;
-  $('#cback').onclick = () => history.length > 1 ? history.back() : (location.hash = '#/build');
+  $('#cback').onclick = () => history.length > 1 ? history.back() : (location.hash = '#/blist');
   if (l.length < 2) { $('#cbody').innerHTML = `<div class="glass empty">${IC.search}<span>Scegli due build con “⇄ Confronta” nella pagina di una build.</span></div>`; return; }
   let A, B;
   try { [A, B] = await Promise.all(l.map(loadView)); } catch (e) { $('#cbody').innerHTML = noData(e.message); return; }
@@ -1034,11 +1035,158 @@ function drawBoard(c, bd) {
   }
 }
 
+// ---------------------------------------------------------------- build: i siti dentro l'app
+const SITES = [['maxroll', 'Maxroll', 'https://maxroll.gg/d4/build-guides'], ['d4builds', 'D4Builds', 'https://d4builds.gg/'], ['mobalytics', 'Mobalytics', 'https://mobalytics.gg/diablo-4/builds']];
+const siteOf = u => /maxroll\.gg/.test(u) ? 'maxroll' : /d4builds\.gg/.test(u) ? 'd4builds' : /mobalytics\.gg/.test(u) ? 'mobalytics' : '';
+var BR = { url: '', timer: 0, ro: null, sideFor: '', openUrl: '' };
+function browserHide() { clearInterval(BR.timer); BR.ro?.disconnect(); BR.ro = null; fetch('/api/browser?op=hide').catch(() => { }); }
+async function browserCall(op, extra = '') { const r = await fetch('/api/browser?op=' + op + extra); if (!r.ok) throw new Error('browser non disponibile'); return r.json(); }
+PAGES.build = async main => {
+  const s = S.st.settings || {};
+  const home = s.browserHome || 'maxroll';
+  main.innerHTML = `<div class="bpage" id="bpage">
+    <div class="btop">
+      <div class="seg" id="bsite">${SITES.map(([k, l]) => `<button data-k="${k}">${l}</button>`).join('')}</div>
+      <div class="bnav"><button class="btn sm ghost" id="bback" title="Indietro">←</button><button class="btn sm ghost" id="bfwd" title="Avanti">→</button><button class="btn sm ghost" id="brel" title="Ricarica">⟳</button></div>
+      <div class="baddr" id="baddr"><b>…</b><small></small></div>
+      <button class="btn sm" id="bfav">☆ Preferito</button>
+      <a class="btn sm ghost" href="#/blist" title="L'elenco di Hellrise con tier list e filtri">☰ Elenco</a>
+    </div>
+    <div class="bfavs" id="bfavs"></div>
+    <div class="bbody"><div class="brv" id="brv"><div class="muted" style="padding:20px">Apro il sito…</div></div><aside class="bside" id="bside"></aside></div>
+  </div>`;
+  const page = $('#bpage'), view = $('#brv');
+  const fit = () => { const t = page.getBoundingClientRect().top; page.style.height = Math.max(420, innerHeight - t - 14) + 'px'; };
+  fit();
+  const sync = async (u = '') => {
+    if (S.page !== 'build') return;
+    const r = view.getBoundingClientRect(), d = devicePixelRatio || 1;
+    try { const st = await browserCall('show', `&x=${Math.round(r.left * d)}&y=${Math.round(r.top * d)}&w=${Math.round(r.width * d)}&h=${Math.round(r.height * d)}` + (u ? '&u=' + encodeURIComponent(u) : '')); upd(st); }
+    catch { if (u) fetch('/api/guide?u=' + encodeURIComponent(u)); view.innerHTML = `<div class="glass empty" style="margin:20px">Il browser interno non è disponibile in questa finestra. <a class="link" href="#/blist">Apri l'elenco delle build</a></div>`; }
+  };
+  const favs = () => S.st.settings.bookmarks || [];
+  const drawFavs = () => {
+    const f = favs();
+    $('#bfavs').innerHTML = f.length ? f.map((b, i) => `<span class="bfchip" data-i="${i}" title="${esc(b.url)}"><i class="sdot s-${b.site}"></i>${esc(b.title || b.url)}<b data-x="${i}" title="Togli">✕</b></span>`).join('') : '<span class="muted" style="font-size:12px">I preferiti che salvi con ☆ compaiono qui (restano solo in Hellrise).</span>';
+    $$('.bfchip', page).forEach(c => c.onclick = e => { const x = e.target.dataset.x; if (x != null) { const l = favs().filter((_, j) => j !== +x); post('/api/settings', { bookmarks: l }).then(st => { S.st.settings = st; drawFavs(); upd(BR.st || {}); }); return; } sync(favs()[+c.dataset.i].url); });
+  };
+  const upd = st => {
+    BR.st = st;
+    if (!st || !st.url) return;
+    $('#baddr').innerHTML = `<b>${esc(st.title || '…')}</b><small>${esc(st.url.replace(/^https?:\/\//, ''))}</small>`;
+    $('#bback').disabled = !st.canBack; $('#bfwd').disabled = !st.canFwd;
+    const site = siteOf(st.url);
+    $$('#bsite button').forEach(b => b.classList.toggle('on', b.dataset.k === site));
+    const isFav = favs().some(b => keyU(b.url) === keyU(st.url));
+    $('#bfav').textContent = isFav ? '★ Nei preferiti' : '☆ Preferito';
+    $('#bfav').classList.toggle('pri', isFav);
+    if (keyU(st.url) !== BR.sideFor) { BR.sideFor = keyU(st.url); browserSide(st.url, st.title); }
+  };
+  $$('#bsite button').forEach(b => b.onclick = () => { const site = SITES.find(x => x[0] === b.dataset.k); sync(site[2]); post('/api/settings', { browserHome: site[0] }).then(st => S.st.settings = st).catch(() => { }); });
+  $('#bback').onclick = () => browserCall('back').then(upd).catch(() => { });
+  $('#bfwd').onclick = () => browserCall('fwd').then(upd).catch(() => { });
+  $('#brel').onclick = () => browserCall('reload').then(upd).catch(() => { });
+  $('#bfav').onclick = async () => {
+    const st = BR.st; if (!st?.url) return;
+    let l = favs();
+    if (l.some(b => keyU(b.url) === keyU(st.url))) l = l.filter(b => keyU(b.url) !== keyU(st.url));
+    else l = [{ url: st.url, title: (st.title || '').replace(/\s*[|–-]\s*(Maxroll|D4Builds|Mobalytics).*$/i, '').slice(0, 80), site: siteOf(st.url), at: Math.floor(Date.now() / 1000) }, ...l];
+    S.st.settings = await post('/api/settings', { bookmarks: l }); drawFavs(); upd(st);
+  };
+  drawFavs();
+  BR.sideFor = '';
+  const first = BR.url && siteOf(BR.url) ? '' : (SITES.find(x => x[0] === home) || SITES[0])[2];
+  await sync(BR.openUrl || first); BR.openUrl = '';
+  BR.ro?.disconnect(); BR.ro = new ResizeObserver(() => { fit(); sync(); }); BR.ro.observe(view);
+  addEventListener('resize', fit);
+  clearInterval(BR.timer);
+  BR.timer = setInterval(() => { if (S.page !== 'build') { clearInterval(BR.timer); return; } browserCall('state').then(st => { upd(st); if (st.url) BR.url = st.url; }).catch(() => { }); }, 1000);
+};
+
+// pannello di lato: legge la build aperta e dice cosa farmare e dove
+async function browserSide(url, title) {
+  const box = $('#bside'); if (!box) return;
+  const site = siteOf(url);
+  const isBuild = /maxroll\.gg\/d4\/(build-guides|planner)\/[^/?#]+/.test(url) || /d4builds\.gg\/builds\/[^/?#]+/.test(url) || /mobalytics\.gg\/diablo-4\/builds\/[^/?#]+\/[^/?#]+/.test(url);
+  if (!isBuild) { box.innerHTML = `<div class="bsh"><div class="lbl">Da farmare</div><div class="muted" style="font-size:12.5px;line-height:1.5">Apri la pagina di una build${site ? '' : ' su Maxroll, D4Builds o Mobalytics'}: qui vedrai gli oggetti che ti servono e dove trovarli, con il pulsante per metterli nell'overlay in gioco.</div></div>`; return; }
+  box.innerHTML = `<div class="bsh"><div class="lbl">Leggo la build…</div><div class="skel" style="height:220px"></div></div>`;
+  await loadLootIdx();
+  // la build tra quelle che Hellrise conosce già (stagione attuale e precedente), oppure letta al volo
+  let b = null;
+  for (const se of [S.season, S.season - 1]) { try { const d = await getBuilds(se); b = d.builds.find(x => keyU(x.url) === keyU(url)); if (b) break; } catch { } }
+  const mx = /maxroll\.gg\/d4\/planner\/([^/?#]+)/.exec(url)?.[1];
+  let view;
+  try {
+    if (b) view = await viewOf(b);
+    else if (mx) { view = viewFromFull(await getFull('mx:' + mx, '/api/fullbuild?mx=' + encodeURIComponent(mx))); b = { url, title: (title || '').split('|')[0].trim(), src: 'Maxroll', profile: mx }; }
+    else { view = viewFromFull(await getFull('u:' + url, '/api/fullbuild?u=' + encodeURIComponent(url))); b = { url, title: (title || '').split('|')[0].trim(), src: site }; }
+  } catch (e) { if (keyU(url) === BR.sideFor) box.innerHTML = `<div class="bsh"><div class="lbl">Da farmare</div><div class="muted" style="font-size:12.5px">Non riesco ancora a leggere questa build (${esc(e.message)}). Se è nuova, Hellrise la scarica alla prossima raccolta.</div></div>`; return; }
+  if (keyU(url) !== BR.sideFor) return;
+  const ui = S.ui.bside ||= {};
+  const vi = Math.min(ui[keyU(url)] || 0, view.variants.length - 1);
+  const v = view.variants[vi];
+  const rows = browserFarmRows(view, v);
+  const inOv = new Set((S.st.settings.overlay?.loot || []).map(x => norm(x.n)));
+  box.innerHTML = `<div class="bsh">
+    <div class="row" style="gap:8px;align-items:flex-start"><div style="flex:1;min-width:0"><b class="bst">${esc(b.title || view.title || '')}</b>${b.cls ? `<small class="muted"> · ${esc(clsName(b.cls))}</small>` : ''}</div></div>
+    ${view.variants.length > 1 ? `<select class="inp" id="bsv" style="width:100%;margin:8px 0">${view.variants.map((x, i) => `<option value="${i}" ${i === vi ? 'selected' : ''}>${esc(x.name || 'Variante ' + (i + 1))}</option>`).join('')}</select>` : ''}
+    <div class="row wrap" style="gap:6px;margin:8px 0 12px"><button class="btn sm ${isPinned(b.url) ? 'pri' : ''}" id="bspin">📌 ${isPinned(b.url) ? 'Fissata' : 'Fissa build'}</button><a class="btn sm ghost" href="#/b/${encodeURIComponent(b.url)}" ${b.title ? '' : 'hidden'}>Scheda completa</a></div>
+    <div class="lbl" style="display:flex;align-items:center">Da farmare · ${rows.length}<span class="sp"></span>${rows.length ? `<button class="btn sm ghost" id="bsall">+ tutti nell'overlay</button>` : ''}</div>
+    <div class="bsrows">${rows.map((r, i) => `<div class="bsr"><div><b class="k-${r.kind}">${esc(r.name)}</b><small>${esc(r.slot)}</small><span>${esc(r.where || 'drop casuale nelle attività di fine gioco')}</span></div><button class="btn sm ${inOv.has(norm(r.name)) ? 'pri' : 'ghost'}" data-i="${i}" title="Mostralo nell'overlay in gioco">${inOv.has(norm(r.name)) ? '✓' : '+'}</button></div>`).join('') || '<div class="muted" style="font-size:12.5px">Questa build non usa unici o mitici: servono solo leggendari con gli aspetti giusti.</div>'}</div>
+    ${(v.gear || []).some(x => /aspect/i.test(x.n)) ? `<div class="lbl" style="margin-top:14px">Aspetti</div><div class="muted" style="font-size:12px;line-height:1.5">${(v.gear || []).filter(x => /aspect/i.test(x.n)).map(x => esc(TN(view, x.n, x.it))).join(' · ')}<br>Dal Codex del Potere (sotterranei) o estraendoli da un leggendario.</div>` : ''}
+  </div>`;
+  $('#bsv')?.addEventListener('change', e => { ui[keyU(url)] = +e.target.value; BR.sideFor = ''; });
+  $('#bspin').onclick = async () => { if (isPinned(b.url)) await unpinBuild(); else await pinBuild(b, view, v); BR.sideFor = ''; };
+  $$('.bsr button', box).forEach(btn => btn.onclick = async () => { const r = rows[+btn.dataset.i]; await lootToggle(r); BR.sideFor = ''; });
+  $('#bsall')?.addEventListener('click', async () => { await lootAdd(rows); BR.sideFor = ''; });
+}
+function browserFarmRows(view, v) {
+  const out = [], seen = new Set();
+  const whereOf = (n, drop) => {
+    if (drop) return drop;
+    const it = (S.lootIdx || {})[norm(n)];
+    return it ? [...new Set(it.sources.map(s => S.lootBoss?.[s.boss]?.name).filter(Boolean))].slice(0, 3).join(' · ') : '';
+  };
+  (v.gear || []).forEach(x => {
+    if (!x.n || /aspect/i.test(x.n) || /^empty$/i.test(x.slot) || seen.has(norm(x.n))) return;
+    seen.add(norm(x.n));
+    const myth = /~m:/.test(view.tr?.[x.n] || '') || /mythic/i.test(x.tip?.cls || '') || (S.lootIdx?.[norm(x.n)]?.mythic);
+    out.push({ name: TN(view, x.n, x.it).replace(/^~m:/, ''), slot: TN(view, x.slot, x.slotIt), where: whereOf(x.n, x.tip?.drop), kind: myth ? 'mythic' : 'unique' });
+  });
+  (v.charms || []).forEach(c => {
+    if (!c.n || seen.has(norm(c.n)) || !(c.tip?.my || /mythic|unique/i.test(c.i || ''))) return;
+    seen.add(norm(c.n));
+    out.push({ name: TN(view, c.n, c.it), slot: 'Talismano', where: whereOf(c.n, c.tip?.drop), kind: c.tip?.my ? 'mythic' : 'unique' });
+  });
+  return out;
+}
+
+// riquadro "da farmare" dell'overlay
+async function lootSave(list) {
+  const o = { ...(S.st.settings.overlay || {}) };
+  o.loot = list;
+  o.lootBox = { ...(o.lootBox || {}) };
+  if (!o.lootBox.on && list.length) { o.lootBox.on = true; o.enabled = true; if (!o.lootBox.x && !o.lootBox.y) { o.lootBox.x = 0.80; o.lootBox.y = 0.30; } }
+  S.st.settings = await post('/api/settings', { overlay: o });
+}
+async function lootAdd(rows) {
+  const cur = [...(S.st.settings.overlay?.loot || [])];
+  const have = new Set(cur.map(x => norm(x.n)));
+  rows.forEach(r => { if (!have.has(norm(r.name))) { cur.push({ n: r.name, where: r.where || '', kind: r.kind || 'unique' }); have.add(norm(r.name)); } });
+  await lootSave(cur); toast('Nell\'overlay: ' + cur.length + ' oggetti da farmare (togli con la ✕ in gioco)');
+}
+async function lootToggle(r) {
+  const cur = S.st.settings.overlay?.loot || [];
+  if (cur.some(x => norm(x.n) === norm(r.name))) { await lootSave(cur.filter(x => norm(x.n) !== norm(r.name))); return; }
+  await lootAdd([r]);
+}
+
 // ---------------------------------------------------------------- chi droppa cosa
 PAGES.drop = async main => {
   const ui = S.ui.drop ||= { q: '', cls: '', boss: '', fav: false, cat: '' };
   main.innerHTML = `<div class="page">
-    <div class="hdr"><div><h1 class="pt">Chi droppa cosa</h1><p class="sub" style="margin:0" id="dsrc">Boss da farmare per ogni unico · stagione ${S.season || '—'}</p></div></div>
+    <div class="hdr"><div><h1 class="pt">Loot table</h1><p class="sub" style="margin:0" id="dsrc">Dove si trova ogni unico e mitico · stagione ${S.season || '—'}</p></div></div>
+    <div class="glass lootov" id="lootov"></div>
     <div class="glass bigsearch">${IC.search}<input id="dq" placeholder="Cerca un unico, un mitico o un materiale (italiano o inglese)…" value="${esc(ui.q)}"><kbd>Esc</kbd></div>
     <div class="row wrap" style="gap:8px;margin-bottom:14px">
       <div class="seg" id="dcls"><button data-v="" class="${!ui.cls ? 'on' : ''}">Tutte le classi</button>${CLASSES.map(([c]) => `<button data-v="${c}" class="${ui.cls === c ? 'on' : ''}" title="${esc(clsName(c))}">${clsIcon(c, 16)}</button>`).join('')}</div>
@@ -1049,7 +1197,7 @@ PAGES.drop = async main => {
     <div class="dsplit"><div id="dres"><div class="skel" style="height:300px"></div></div><div class="glass" style="padding:0"><div class="bosses" id="dboss"></div></div></div></div>`;
   let L;
   try { L = await getLoot(S.season); } catch (e) { $('#dres').innerHTML = noData(e.message); return; }
-  if (L.sources?.length) $('#dsrc').textContent = `Boss da farmare per ogni unico · stagione ${S.season} · fonti: ${L.sources.join(', ')}${L.ptr ? ' · dati del PTR' : ''}`;
+  if (L.sources?.length) $('#dsrc').textContent = `Dove si trova ogni unico e mitico · stagione ${S.season} · fonti: ${L.sources.join(', ')}${L.ptr ? ' · dati del PTR' : ''}`;
   const favs = new Set(S.st.settings?.favorites || []);
   const bossById = Object.fromEntries((L.bosses || []).map(b => [b.id, b]));
   const draw = () => {
@@ -1069,7 +1217,17 @@ PAGES.drop = async main => {
     $('#dclr')?.addEventListener('click', () => { ui.boss = ''; draw(); drawBosses(); });
     $$('.star', $('#dres')).forEach(s => s.onclick = async ev => { ev.stopPropagation(); const k = s.dataset.k; favs.has(k) ? favs.delete(k) : favs.add(k); s.classList.toggle('on', favs.has(k)); try { const st = await post('/api/settings', { favorites: [...favs] }); S.st.settings = st; } catch { } });
     $$('.src[data-b]', $('#dres')).forEach(s => s.onclick = () => { ui.boss = s.dataset.b; draw(); drawBosses(); $('#main').scrollTop = 0; });
+    $$('.ovadd', $('#dres')).forEach(bt => bt.onclick = async ev => { ev.stopPropagation(); const it = L.items.find(x => (x.key || x.en) === bt.dataset.ov); if (!it) return; await lootToggle(lootRow(it, bossById)); draw(); drawOv(); });
   };
+  const drawOv = () => {
+    const l = S.st.settings.overlay?.loot || [];
+    const on = !!S.st.settings.overlay?.lootBox?.on;
+    $('#lootov').innerHTML = `<div class="row wrap" style="gap:8px;align-items:center"><b style="font-size:13px">Nell'overlay in gioco</b><span class="muted" style="font-size:12px">${l.length ? l.length + ' oggetti · in partita li togli con la ✕' : 'Premi “+ overlay” su un oggetto per vederlo in gioco mentre farmi'}</span><span class="sp"></span>${l.length ? `<label class="tog" style="padding:0"><input type="checkbox" id="lovon" ${on ? 'checked' : ''}><i></i><b style="font-size:12.5px">Mostra</b></label><button class="btn sm ghost" id="lovclr">Svuota</button>` : ''}</div>${l.length ? `<div class="lochips">${l.map((x, i) => `<span class="lochip k-${x.kind || 'unique'}" title="${esc(x.where || '')}">${esc(x.n)}<b data-i="${i}">✕</b></span>`).join('')}</div>` : ''}`;
+    $$('.lochip b', $('#lootov')).forEach(x => x.onclick = async () => { await lootSave(l.filter((_, j) => j !== +x.dataset.i)); draw(); drawOv(); });
+    $('#lovclr')?.addEventListener('click', async () => { await lootSave([]); draw(); drawOv(); });
+    $('#lovon')?.addEventListener('change', async e => { const o = { ...(S.st.settings.overlay || {}) }; o.lootBox = { ...(o.lootBox || {}), on: e.target.checked }; S.st.settings = await post('/api/settings', { overlay: o }); });
+  };
+  drawOv();
   const drawBosses = () => {
     $('#dboss').innerHTML = `<div class="lbl" style="padding:6px 12px 8px">Boss e fonti</div>` + (L.bosses || []).filter(b => (b.items || []).length).map(b => `<div class="bossrow ${ui.boss === b.id ? 'on' : ''}" data-b="${b.id}"><span class="ic" style="width:30px;height:30px;border-radius:9px;display:grid;place-items:center;background:${b.kind === 'boss' ? 'rgba(255,61,31,.16)' : (b.kind === 'mythic' ? 'rgba(217,160,255,.16)' : 'rgba(255,255,255,.07)')};color:${b.kind === 'boss' ? '#ff8a6a' : (b.kind === 'mythic' ? '#d9a0ff' : 'var(--ink2)')}">${(b.kind === 'boss' ? IC.boss : IC.star).replace('<svg', '<svg width="16" height="16"')}</span><div class="t"><b>${esc(b.name)}</b><small>${(b.items || []).length} oggetti${b.location ? ' · ' + esc(b.location) : ''}</small></div></div>`).join('');
     $$('.bossrow', $('#dboss')).forEach(r => r.onclick = () => { ui.boss = ui.boss === r.dataset.b ? '' : r.dataset.b; draw(); drawBosses(); });
@@ -1090,12 +1248,17 @@ function groupByCat(items) {
   for (const it of items) { const c = it.mythic ? 'mitici' : (it.cat || 'altro'); (g[c] ||= []).push(it); }
   return ITEMCATS.map(([c]) => [c, g[c]]).filter(x => x[1]?.length);
 }
+const lootIn = it => (S.st.settings.overlay?.loot || []).some(x => norm(x.n) === norm(nm(it.name, it.en)));
+function lootRow(it, bossById) {
+  const where = [...new Set(it.sources.map(s => bossById[s.boss]?.name).filter(Boolean))].slice(0, 3).join(' · ');
+  return { name: nm(it.name, it.en), where, kind: it.mythic ? 'mythic' : it.mat ? 'mat' : 'unique' };
+}
 function norm(s) { return String(s || '').toLowerCase().normalize('NFD').replace(/[\u0300-\u036f]/g, '').replace(/[’'`]/g, "'"); }
 function itemCard(it, i, favs, bossById) {
   const k = it.key || it.en;
   const srcs = {};
   it.sources.forEach(s => { (srcs[s.boss] ||= []).push(s); });
-  return `<div class="glass ditem ${it.mythic ? 'mythic' : ''}"><div class="n"><b>${esc(nm(it.name, it.en))}</b><button class="star ${favs.has(k) ? 'on' : ''}" data-k="${esc(k)}" title="Segui">${IC.star}</button></div>
+  return `<div class="glass ditem ${it.mythic ? 'mythic' : ''}"><div class="n"><b>${esc(nm(it.name, it.en))}</b><button class="ovadd ${lootIn(it) ? 'on' : ''}" data-ov="${esc(k)}" title="Mostralo nell'overlay in gioco (lo togli con la ✕ mentre giochi)">${lootIn(it) ? '✓ overlay' : '+ overlay'}</button><button class="star ${favs.has(k) ? 'on' : ''}" data-k="${esc(k)}" title="Segui">${IC.star}</button></div>
     <div class="en">${esc([it.type, sub(it.name, it.en)].filter(Boolean).join(' · '))}${it.classes?.length && it.classes.length < 8 ? ' · ' + it.classes.map(clsName).join(', ') : ''}</div>
     <div class="srcs">${Object.entries(srcs).slice(0, 4).map(([bid, list]) => { const b = bossById[bid] || { name: bid, kind: 'special' }; const cl = [...new Set(list.map(x => x.cls).filter(Boolean))]; return `<div class="src" data-b="${esc(bid)}" style="cursor:pointer"><span class="bi" style="${b.kind !== 'boss' ? 'background:rgba(255,255,255,.07);color:var(--ink2)' : ''}">${(b.kind === 'boss' ? IC.boss : IC.star).replace('<svg', '<svg')}</span><div><div>${esc(b.name)}${cl.length ? ` <small>· ${cl.map(clsName).join(', ')}</small>` : ''}</div>${b.location ? `<small>${esc(b.location)}</small>` : ''}</div></div>`; }).join('')}</div></div>`;
 }
@@ -1238,7 +1401,7 @@ PAGES.macro = async main => {
       <div class="glass card" id="medit"></div>
     </div></div>`;
   $('#mlaunch').onclick = async () => { try { await post('/api/macro/launch', {}); toast('D4Pressure avviato'); } catch (e) { toast(e.message); } };
-  $('#mnew').onclick = () => { location.hash = '#/build'; toast('Scegli una build Maxroll e premi "Suggerisci profilo macro"'); };
+  $('#mnew').onclick = () => { location.hash = '#/blist'; toast('Scegli una build Maxroll e premi "Suggerisci profilo macro"'); };
   $$('.mrow[data-id]', main).forEach(r => r.onclick = () => { ui.sel = r.dataset.id; ui.edit = null; PAGES.macro(main); });
   const e = ui.edit, ed = $('#medit');
   if (!e) { ed.innerHTML = `<div class="empty">${IC.keyb}<span>Scegli un profilo o creane uno da una build</span></div>`; return; }
@@ -1275,7 +1438,7 @@ PAGES.overlay = async main => {
   const o = S.st.settings.overlay || {};
   const tg = (path, label, small) => { const v = path.split('.').reduce((a, k) => a?.[k], o); return `<label class="tog"><input type="checkbox" data-o="${path}" ${v ? 'checked' : ''}><i></i><span><b>${label}</b>${small ? `<small>${small}</small>` : ''}</span></label>`; };
   main.innerHTML = `<div class="page">
-    <div class="hdr"><div><h1 class="pt">Overlay in gioco</h1><p class="sub" style="margin:0">Riquadri sopra Diablo IV (finestra senza bordi): timer degli eventi e rotazione delle abilità. Non legge e non tocca il gioco.</p></div><span class="sp"></span><span class="statusline"><span class="dot ${S.st.diablo ? 'ok' : ''}"></span>${S.st.diablo ? 'Diablo IV aperto' : 'Diablo IV chiuso'}</span></div>
+    <div class="hdr"><div><h1 class="pt">Overlay in gioco</h1><p class="sub" style="margin:0">Riquadri sopra Diablo IV (finestra senza bordi): timer degli eventi, rotazione delle abilità e oggetti da farmare. Non legge e non tocca il gioco.</p></div><span class="sp"></span><span class="statusline"><span class="dot ${S.st.diablo ? 'ok' : ''}"></span>${S.st.diablo ? 'Diablo IV aperto' : 'Diablo IV chiuso'}</span></div>
     <div class="sgrid">
       <div class="glass card"><h2>Generale</h2>
         ${tg('enabled', 'Overlay attivo', 'Compare solo quando Diablo IV è in primo piano')}
@@ -1295,6 +1458,11 @@ PAGES.overlay = async main => {
         ${tg('rotation.on', 'Mostra la rotazione', o.rotLines?.length ? esc(o.rotTitle || '') + ' · ' + o.rotLines.length + ' passaggi' : 'Fissa una build con 📌: la rotazione arriva da sola')}
         ${tg('rotation.lock', 'Riquadro rotazione bloccato')}
         ${o.rotLines?.length ? `<ol class="rotlist">${o.rotLines.map(l => `<li>${esc(l)}</li>`).join('')}</ol>` : ''}
+      </div>
+      <div class="glass card"><h2>Da farmare</h2>
+        ${tg('lootBox.on', 'Mostra gli oggetti da farmare', (o.loot || []).length ? (o.loot || []).length + ' oggetti · in gioco li togli con la ✕ (basta passarci sopra col mouse)' : 'Aggiungili dalla Loot table o dal pannello delle build con “+ overlay”')}
+        ${tg('lootBox.lock', 'Riquadro bloccato')}
+        ${(o.loot || []).length ? `<ol class="rotlist">${o.loot.map(l => `<li><b>${esc(l.n)}</b>${l.where ? ` <span class="muted">· ${esc(l.where)}</span>` : ''}</li>`).join('')}</ol>` : ''}
       </div>
     </div></div>`;
   const save = async patch => { const cur = { ...(S.st.settings.overlay || {}) }; for (const [k, v] of Object.entries(patch)) { const ks = k.split('.'); if (ks.length === 2) cur[ks[0]] = { ...(cur[ks[0]] || {}), [ks[1]]: v }; else cur[k] = v; } try { S.st.settings = await post('/api/settings', { overlay: cur }); } catch (e) { toast(e.message); } };

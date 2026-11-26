@@ -35,6 +35,7 @@ var (
 	wvMu         sync.Mutex
 	wvHwnd       uintptr
 	wvController uintptr
+	wvEnv        uintptr
 	wvURL        string
 	wvFailed     atomic.Bool
 	wvMaxed      bool
@@ -157,6 +158,8 @@ func wvWndProc(h, msg, wp, lp uintptr) uintptr {
 	case wmApp + 1: // azioni chieste dall'interfaccia
 		wvAction(int(wp))
 		return 0
+	case wmApp + 2: // browser dei siti dentro l'app
+		return brHandle(int(wp), lp)
 	}
 	r, _, _ := pDefWindowProc.Call(h, msg, wp, lp)
 	return r
@@ -338,6 +341,8 @@ func wvThread(dll, url string, res chan bool) {
 			ok <- false
 			return 0
 		}
+		comCall(env, 1) // AddRef: serve anche per il browser dei siti dentro l'app
+		wvEnv = env
 		comCall(env, 3, hwnd, uintptr(unsafe.Pointer(ctrlHandler))) // CreateCoreWebView2Controller
 		return 0
 	})

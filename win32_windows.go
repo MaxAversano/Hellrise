@@ -20,6 +20,7 @@ var (
 	pTranslateMessage = u32.NewProc("TranslateMessage")
 	pDispatchMessage  = u32.NewProc("DispatchMessageW")
 	pSetWindowPos     = u32.NewProc("SetWindowPos")
+	pSendMessage      = u32.NewProc("SendMessageW")
 	pShowWindow       = u32.NewProc("ShowWindow")
 	pGetSystemMetrics = u32.NewProc("GetSystemMetrics")
 	pGetModuleHandle  = k32.NewProc("GetModuleHandleW")

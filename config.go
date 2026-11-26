@@ -24,6 +24,8 @@ type Settings struct {
 	Favorites      []string     `json:"favorites"`   // oggetti seguiti in "Chi droppa cosa"
 	SavedBuilds    []SavedBuild `json:"savedBuilds"` // build salvate (con filtri e variante)
 	Pinned         *PinnedBuild `json:"pinned"`      // la build che stai giocando: comanda l'overlay
+	Bookmarks      []Bookmark   `json:"bookmarks"`   // preferiti del browser dei siti (solo in Hellrise)
+	BrowserHome    string       `json:"browserHome"` // ultimo sito scelto nel browser
 	Blur           bool         `json:"blur"`        // effetto vetro più marcato
 	Motion         bool         `json:"motion"`      // animazioni dello sfondo
 	Accent         string       `json:"accent"`      // colore principale
@@ -36,6 +38,21 @@ type OWidget struct {
 	Lock bool    `json:"lock"` // bloccato: non si sposta
 	X    float64 `json:"x"`    // 0..1 frazione dello schermo
 	Y    float64 `json:"y"`
+}
+
+// preferito del browser dei siti
+type Bookmark struct {
+	URL   string `json:"url"`
+	Title string `json:"title"`
+	Site  string `json:"site"`
+	At    int64  `json:"at"`
+}
+
+// oggetto da farmare mostrato nell'overlay (con la X per toglierlo in partita)
+type LootEntry struct {
+	N     string `json:"n"`     // nome
+	Where string `json:"where"` // dove si trova
+	Kind  string `json:"kind"`  // unique, mythic, legendary, mat
 }
 
 // build fissata: quella che stai giocando
@@ -76,6 +93,8 @@ type OverlaySet struct {
 	RotTitle  string         `json:"rotTitle"`
 	RotLines  []string       `json:"rotLines"`
 	ParMin    bool           `json:"parMin"`
+	LootBox   OWidget        `json:"lootBox"` // riquadro "da farmare"
+	Loot      []LootEntry    `json:"loot"`
 	HideCap   bool           `json:"hideCapture"` // nasconde l'overlay a OBS e alle registrazioni // paragon chiuso a occhietto (Alt+Shift+P o clic sull'occhio)
 }
 
@@ -172,3 +191,14 @@ type SavedBuild struct {
 	Told    int64    `json:"told"`            // data per cui è già partito l'avviso di Windows
 	Owned   []string `json:"owned,omitempty"` // pezzi che hai già ("Helm", "Ring 1"…)
 }
+
+// operazioni del browser dei siti dentro l'app
+const (
+	brShow = iota + 1
+	brHide
+	brBack
+	brFwd
+	brReload
+	brState
+	brNav
+)

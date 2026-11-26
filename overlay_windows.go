@@ -317,6 +317,10 @@ func paintOverlay(hdc uintptr) {
 	if o.Rotation.On && len(o.RotLines) > 0 {
 		hits["rotation"] = drawRotation(mem, o, sc, k)
 	}
+	ovLootX = ovLootX[:0]
+	if o.LootBox.On && len(o.Loot) > 0 {
+		hits["loot"] = drawLoot(mem, o, sc, k)
+	}
 	locks := map[string]rect{}
 	if ovEdit || ovMove {
 		for key, r := range hits {
@@ -398,6 +402,8 @@ func widgetOf(o *OverlaySet, key string) *OWidget {
 		return &o.Timers
 	case "rotation":
 		return &o.Rotation
+	case "loot":
+		return &o.LootBox
 	}
 	return &o.Paragon
 }
@@ -422,6 +428,48 @@ func drawRotation(hdc uintptr, o OverlaySet, sc func(float64) int32, k float64) 
 	for i, l := range lines {
 		ovText(hdc, fmt.Sprintf("%d", i+1), rect{x + sc(12), ry, x + sc(30), ry + rowH}, cAcc2, ovFont(int(12*k), true), dtLeft)
 		ovText(hdc, l, rect{x + sc(32), ry, x + w - sc(10), ry + rowH}, cInk, ovFont(int(12.5*k), false), dtLeft|0x8000)
+		ry += rowH
+	}
+	return rect{x, y, x + w, y + h}
+}
+
+// riquadro "da farmare": oggetti scelti dalla loot table o dalla build, con la X per toglierli
+var (
+	ovLootX     []rect
+	ovLootHover bool
+)
+
+func drawLoot(hdc uintptr, o OverlaySet, sc func(float64) int32, k float64) rect {
+	items := o.Loot
+	if len(items) > 12 {
+		items = items[:12]
+	}
+	w := sc(330)
+	rowH := sc(38)
+	h := sc(32) + rowH*int32(len(items)) + sc(8)
+	x, y := widgetOrigin(o.LootBox, w, h)
+	ovRound(hdc, rect{x, y, x + w, y + h}, sc(14), cPanel, cBorder)
+	ovText(hdc, fmt.Sprintf("DA FARMARE · %d", len(o.Loot)), rect{x + sc(14), y + sc(5), x + w - sc(34), y + sc(28)}, cMute, ovFont(int(10.5*k), true), dtLeft)
+	ry := y + sc(30)
+	ovLootX = ovLootX[:0]
+	for _, it := range items {
+		c := col(0xE8A33D) // unico
+		switch it.Kind {
+		case "mythic":
+			c = col(0xC07BFF)
+		case "legendary":
+			c = cAcc
+		case "mat":
+			c = cInk
+		}
+		ovText(hdc, it.N, rect{x + sc(14), ry + sc(2), x + w - sc(44), ry + sc(20)}, c, ovFont(int(12.5*k), true), dtLeft|0x8000)
+		if it.Where != "" {
+			ovText(hdc, it.Where, rect{x + sc(14), ry + sc(19), x + w - sc(44), ry + sc(36)}, cMute, ovFont(int(10.5*k), false), dtLeft|0x8000)
+		}
+		xr := rect{x + w - sc(36), ry + sc(7), x + w - sc(12), ry + sc(31)}
+		ovRound(hdc, xr, sc(8), cHead, cBorder)
+		ovText(hdc, "✕", xr, cInk, ovFont(int(12*k), true), dtCenter)
+		ovLootX = append(ovLootX, xr)
 		ry += rowH
 	}
 	return rect{x, y, x + w, y + h}
@@ -1298,7 +1346,19 @@ func overlayTick() {
 			pReleaseCapture.Call()
 			saveSettings()
 		}
-		setClickable(ovEdit || ovMove)
+		setClickable(ovEdit || ovMove || ovLootHover)
+	}
+	// col mouse sopra il riquadro "da farmare" l'overlay prende i clic (per le X), altrimenti
+	// i clic passano al gioco
+	hover := false
+	if r, ok := ovHits["loot"]; ok && r.r > r.l && len(ovLootX) > 0 {
+		var c struct{ x, y int32 }
+		pGetCursorPosF.Call(uintptr(unsafe.Pointer(&c)))
+		hover = c.x >= r.l && c.x <= r.r && c.y >= r.t && c.y <= r.b
+	}
+	if hover != ovLootHover {
+		ovLootHover = hover
+		setClickable(ovEdit || ovMove || ovLootHover)
 	}
 	show := o.Enabled && !ovHideAll && (o.Always || fg || ovEdit || ovMove)
 	hot := o.Enabled && (o.Always || fg || ovEdit)
@@ -1408,7 +1468,21 @@ func ovWndProc(hwnd, msg, wparam, lparam uintptr) uintptr {
 	case 0x0312: // WM_HOTKEY
 		overlayHotkey(int(wparam))
 		return 0
-	case 0x0201: // WM_LBUTTONDOWN: lucchetto oppure inizia a trascinare un riquadro
+	case 0x0201: // WM_LBUTTONDOWN: X del riquadro "da farmare", lucchetto oppure inizia a trascinare un riquadro
+		{
+			x, y := int32(int16(lparam&0xFFFF))+ovWin.l, int32(int16(lparam>>16&0xFFFF))+ovWin.t
+			for i, r := range ovLootX {
+				if x >= r.l && x <= r.r && y >= r.t && y <= r.b {
+					updateSettings(func(s *Settings) {
+						if i < len(s.Overlay.Loot) {
+							s.Overlay.Loot = append(s.Overlay.Loot[:i:i], s.Overlay.Loot[i+1:]...)
+						}
+					})
+					pInvalidateRect.Call(hwnd, 0, 0)
+					return 0
+				}
+			}
+		}
 		if ovEdit || ovMove {
 			x, y := int32(int16(lparam&0xFFFF))+ovWin.l, int32(int16(lparam>>16&0xFFFF))+ovWin.t
 			in := func(r rect) bool { return x >= r.l && x <= r.r && y >= r.t && y <= r.b }

@@ -158,6 +158,24 @@ func setupAPI(mux *http.ServeMux) {
 		w.Write(b)
 	})
 
+	// browser dei siti di build dentro la finestra dell'app
+	mux.HandleFunc("/api/browser", func(w http.ResponseWriter, r *http.Request) {
+		q := r.URL.Query()
+		atoi := func(k string) int32 { v, _ := strconv.Atoi(q.Get(k)); return int32(v) }
+		ops := map[string]int{"show": brShow, "hide": brHide, "back": brBack, "fwd": brFwd, "reload": brReload, "state": brState, "nav": brNav}
+		op, ok := ops[q.Get("op")]
+		if !ok {
+			op = brState
+		}
+		x, y := atoi("x"), atoi("y")
+		st, done := browserOp(op, q.Get("u"), rect{x, y, x + atoi("w"), y + atoi("h")})
+		if !done {
+			http.Error(w, `{"error":"browser non disponibile in questa finestra"}`, 503)
+			return
+		}
+		jsonOut(w, st)
+	})
+
 	// dettagli di glifi e nodi leggendari (dai dati di gioco)
 	mux.HandleFunc("/api/pinfo", func(w http.ResponseWriter, r *http.Request) {
 		jsonOut(w, paragonInfo())
