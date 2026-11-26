@@ -96,6 +96,7 @@ var (
 	ovLocks           = map[string]rect{}
 	ovEye             rect
 	ovLabel           rect
+	ovFlame           rect
 	ovTags            []rect
 )
 
@@ -287,7 +288,7 @@ func paintOverlay(hdc uintptr) {
 	if o.Timers.On {
 		hits["timers"] = drawTimers(mem, o, sc, k)
 	}
-	ovEye, ovLabel, ovTags = rect{}, rect{}, ovTags[:0]
+	ovEye, ovLabel, ovFlame, ovTags = rect{}, rect{}, rect{}, ovTags[:0]
 	if o.Paragon.On {
 		r := drawParagon(mem, o, sc, k)
 		hits["paragon"] = r
@@ -304,7 +305,21 @@ func paintOverlay(hdc uintptr) {
 			}
 			ovText(mem, sym, e, c, symFont(int(12*k)), dtCenter)
 			ovEye = e
+			if !o.ParMin && r.b-r.t > sc(60) { // 🔥 accanto all'occhio: allinea al paragon aperto
+				fr := rect{e.l - sc(30), e.t, e.l - sc(6), e.b}
+				ovRound(mem, fr, sc(8), cHead, cBorder)
+				ovText(mem, "\U0001F525", fr, cAcc, symFont(int(12*k)), dtCenter)
+				ovFlame = fr
+			}
 		}
+	}
+	if m := getFlameMsg(); m != "" && o.Paragon.On && !o.ParMin { // esito della fiammella
+		fo := ovFont(int(13*k), true)
+		tw := sc(float64(len([]rune(m)))*7.2 + 40)
+		tr := rect{(ovW - tw) / 2, sc(84), (ovW + tw) / 2, sc(84) + sc(36)}
+		ovRound(mem, tr, sc(14), cPanel, cAcc)
+		ovText(mem, m, tr, cInk, fo, dtCenter)
+		ovTags = append(ovTags, tr)
 	}
 	if o.Rotation.On && len(o.RotLines) > 0 {
 		hits["rotation"] = drawRotation(mem, o, sc, k)
@@ -550,10 +565,8 @@ func drawParagon(hdc uintptr, o OverlaySet, sc func(float64) int32, k float64) r
 	}
 	// automatico: se il paragon del gioco è aperto e riconosciuto, cornici sulla tavola vera;
 	// altrimenti la guida con tutto il paragon della build fissata
-	if o.Mode != "panel" {
-		if d, ok := lastDetect(); ok && d.OK && d.Board >= 0 {
-			return drawParagonAligned(hdc, o, sc, k)
-		}
+	if d, ok := lastDetect(); ok && d.OK && d.Board >= 0 { // allineato con la fiammella
+		return drawParagonAligned(hdc, o, sc, k)
 	}
 	return drawParagonGuide(hdc, o, sc, k)
 }
@@ -732,9 +745,7 @@ func drawParagonGuide(hdc uintptr, o OverlaySet, sc func(float64) int32, k float
 		ly += rowH
 	}
 	hint := "Ctrl+Shift+←/→ tavola · ↑/↓ fase · R/Q ruota"
-	if o.Mode != "panel" {
-		hint += " · apri il paragon in gioco: si allinea da solo"
-	}
+	hint += " · paragon aperto: 🔥 Alt+Shift+F"
 	ovText(hdc, hint, rect{x + pad, y + h - foot, x + w - pad, y + h - sc(4)}, cMute, ovFont(int(10*k), false), dtLeft|0x8000)
 	return rect{x, y, x + w, y + h}
 }
@@ -786,7 +797,7 @@ func drawParagonAligned(hdc uintptr, o OverlaySet, sc func(float64) int32, k flo
 	cp := det.Cell
 	gx, gy := int32(det.X), int32(det.Y)
 	side := int32(float64(w) * cp)
-	lw, lh := sc(420), sc(28)
+	lw, lh := sc(560), sc(28)
 	lx, ly := gx, gy-lh-sc(8)
 	if ly < 0 {
 		ly = gy + side + sc(8)
@@ -795,6 +806,7 @@ func drawParagonAligned(hdc uintptr, o OverlaySet, sc func(float64) int32, k flo
 	if g := pick(cb.board.Glyph, cb.board.GlyphEn); g != "" {
 		label += " · glifo " + g
 	}
+	label += "   🔥 Alt+Shift+F riallinea"
 	warn := ""
 	if d := ((cb.board.Rotation-det.Rot)%4 + 4) % 4; d != 0 && det.Board > 0 {
 		warn = "⚠ Nella build è girata diversamente: " + rotPhrase(d) + " prima di attaccarla"
@@ -807,7 +819,7 @@ func drawParagonAligned(hdc uintptr, o OverlaySet, sc func(float64) int32, k flo
 				ly = gy + side + sc(8)
 			}
 		}
-		lw = sc(520)
+		lw = sc(600)
 	}
 	ovLabel = rect{lx, ly, lx + lw, ly + lh}
 	ovRound(hdc, rect{lx, ly, lx + lw, ly + lh}, sc(12), cPanel, cBorder)
@@ -870,143 +882,223 @@ func drawParagonAligned(hdc uintptr, o OverlaySet, sc func(float64) int32, k flo
 
 var det struct {
 	sync.Mutex
-	last BoardDetect
-	at   time.Time
-	cand BoardDetect
+	last   BoardDetect
+	at     time.Time
+	pinned bool // allineato con la fiammella: resta finché la mappa non cambia
+	cand   BoardDetect
+}
+
+// 🔥 fiammella: "allinea adesso". Il riconoscimento parte solo quando lo chiedi tu,
+// con una ricerca completa (tutte le tavole della classe, in ogni rotazione), poi resta fermo
+var (
+	flameReq   = make(chan struct{}, 1)
+	flameMsg   string
+	flameMsgAt time.Time
+	flameMu    sync.Mutex
+)
+
+func requestFlame() {
+	select {
+	case flameReq <- struct{}{}:
+	default:
+	}
+	setFlameMsg("🔥 Cerco le tavole…")
+}
+
+func setFlameMsg(m string) {
+	flameMu.Lock()
+	flameMsg, flameMsgAt = m, time.Now()
+	flameMu.Unlock()
+	if ovHwnd != 0 {
+		pInvalidateRect.Call(ovHwnd, 0, 0)
+	}
+}
+
+func getFlameMsg() string {
+	flameMu.Lock()
+	defer flameMu.Unlock()
+	if time.Since(flameMsgAt) > 6*time.Second {
+		return ""
+	}
+	return flameMsg
 }
 
 func lastDetect() (BoardDetect, bool) {
 	det.Lock()
 	defer det.Unlock()
-	return det.last, det.last.OK && time.Since(det.at) < 5*time.Second
+	return det.last, det.last.OK && det.pinned
+}
+
+// cattura dello schermo senza i riquadri dell'overlay, a metà risoluzione se serve
+func detCapture() ([]float64, int, int, float64) {
+	g, w, h := captureGray(rect{0, 0, ovW, ovH})
+	if g == nil {
+		return nil, 0, 0, 1
+	}
+	ovDrawnMu.Lock()
+	for _, r := range ovDrawn {
+		for y := max(int(r.t), 0); y < min(int(r.b), h); y++ {
+			for x := max(int(r.l), 0); x < min(int(r.r), w); x++ {
+				g[y*w+x] = 20
+			}
+		}
+	}
+	ovDrawnMu.Unlock()
+	f := 1.0
+	if w > 1300 {
+		g, w, h = halfGray(g, w, h)
+		f = 2
+	}
+	return g, w, h, f
+}
+
+// tutte le tavole della classe della build (per capire quale hai davanti, in qualsiasi rotazione)
+func classBoards(step *PStep) map[string]PBoard {
+	out := map[string]PBoard{}
+	d := getGD()
+	if d == nil || step == nil {
+		return out
+	}
+	prefix := ""
+	for _, b := range step.Boards {
+		if i := strings.LastIndex(b.ID, "_"); i > 0 {
+			prefix = b.ID[:i+1]
+			break
+		}
+	}
+	for id, def := range d.Boards {
+		if prefix == "" || !strings.HasPrefix(id, prefix) || def.Width <= 0 {
+			continue
+		}
+		raw := make([]byte, len(def.Cells))
+		for i, c := range def.Cells {
+			raw[i] = '0' + c
+		}
+		out[id] = PBoard{ID: id, Name: def.It, En: def.En, Width: def.Width, RawCells: string(raw)}
+	}
+	return out
 }
 
 func autoDetectLoop() {
 	for {
-		det.Lock()
-		locked := det.last.OK && time.Since(det.at) < 5*time.Second
-		lastP := det.last.Cell
-		det.Unlock()
-		wait := 2200 * time.Millisecond // ricerca completa: più rada per non pesare sul gioco
-		if locked {
-			wait = 900 * time.Millisecond // tavola già trovata: si segue (veloce)
+		pinned := false
+		select {
+		case <-flameReq:
+			flameAlign()
+			continue
+		case <-time.After(700 * time.Millisecond):
 		}
-		for t0 := time.Now(); time.Since(t0) < wait; {
-			time.Sleep(100 * time.Millisecond)
-			if ovMoveHeld() && !locked { // tieni premuto il tasto (Alt): cerca subito
-				break
-			}
+		det.Lock()
+		pinned = det.pinned
+		last := det.last
+		det.Unlock()
+		if !pinned || !diabloForeground() {
+			continue
 		}
 		o := getSettings().Overlay
-		if !o.Enabled || !o.Paragon.On || o.ParMin || o.Mode == "panel" || ovHideAll || !diabloForeground() {
-			if time.Since(detLogAt) > 60*time.Second && o.Enabled {
-				detLogAt = time.Now()
-				log.Printf("paragon: riconoscimento fermo (attivo %v, paragon %v, chiuso %v, modo %q, nascosto %v, gioco davanti %v)", o.Enabled, o.Paragon.On, o.ParMin, o.Mode, ovHideAll, diabloForeground())
-			}
-			continue
-		}
 		cb, _ := currentBoard(o)
-		if cb.board == nil || cb.step == nil {
-			if time.Since(detLogAt) > 60*time.Second {
-				detLogAt = time.Now()
-				log.Printf("paragon: nessuna tavola della build fissata")
-			}
+		if cb.step == nil || last.Board < 0 || last.Board >= len(cb.step.Boards) {
 			continue
 		}
-		g, w, h := captureGray(rect{0, 0, ovW, ovH})
+		g, w, h, f := detCapture()
 		if g == nil {
 			continue
 		}
-		// i riquadri dell'overlay (se si vedono nella cattura) non devono confondere il riconoscimento
-		ovDrawnMu.Lock()
-		for _, r := range ovDrawn {
-			for y := max(int(r.t), 0); y < min(int(r.b), h); y++ {
-				for x := max(int(r.l), 0); x < min(int(r.r), w); x++ {
-					g[y*w+x] = 20
-				}
-			}
-		}
-		ovDrawnMu.Unlock()
-		f := 1.0
-		if w > 1300 { // metà risoluzione basta e va molto più veloce
-			g, w, h = halfGray(g, w, h)
-			f = 2
-		}
-		// se lo schermo non è cambiato (non hai spostato né zoomato la mappa) la tavola resta dov'è:
-		// niente nuova ricerca, così le cornici non ballano
 		th := thumb(g, w, h)
-		if locked && thumbDiff(th, lastThumb) < 2.5 {
-			det.Lock()
-			det.at = time.Now()
-			det.Unlock()
+		if thumbDiff(th, lastThumb) < 2.5 { // mappa ferma: tutto resta dov'è
 			continue
 		}
-		lastThumb = th
-		minP, maxP := max(10, h*12/1080), h*140/1080
-		if locked {
-			minP, maxP = int(lastP/f*0.95), int(lastP/f*1.05+1)
-		}
-		grids := findGrids(g, w, h, minP, maxP)
-		// prova tutte le tavole della fase: capisce da solo quale hai aperto (anche solo in parte)
-		var d BoardDetect
-		bi := -1
-		for i, b := range cb.step.Boards {
-			for _, gr := range grids {
-				if x := matchBoard(gr, b.RawCells, b.Width); x.OK && (!d.OK || x.Score > d.Score) {
-					d, bi = x, i
-				}
+		// la mappa si è mossa: si segue la stessa tavola (spostata o zoomata)
+		b := cb.step.Boards[last.Board]
+		grids := findGrids(g, w, h, int(last.Cell/f*0.7), int(last.Cell/f*1.4+1))
+		var best BoardDetect
+		for _, gr := range grids {
+			if x := matchBoard(gr, b.RawCells, b.Width); x.OK && x.Score > best.Score && x.Rot == last.Rot {
+				best = x
 			}
 		}
-		bestScore := d.Score
-		if !d.OK {
-			for _, b := range cb.step.Boards {
-				for _, gr := range grids {
-					if x := matchBoard(gr, b.RawCells, b.Width); x.Score > bestScore {
-						bestScore = x.Score
-					}
-				}
-			}
+		if best.OK && best.Score >= 0.8 {
+			best = refineDetect(g, w, h, best, b.RawCells, b.Width)
+			best.X, best.Y, best.Cell, best.Board = best.X*f, best.Y*f, best.Cell*f, last.Board
+			det.Lock()
+			det.last, det.at = best, time.Now()
+			det.Unlock()
+			lastThumb = th
+			continue
 		}
-		if d.OK {
-			d = refineDetect(g, w, h, d, cb.step.Boards[bi].RawCells, cb.step.Boards[bi].Width)
-		}
-		if time.Since(detLogAt) > 20*time.Second {
-			detLogAt = time.Now()
-			var lum float64
-			for _, v := range g {
-				lum += v
-			}
-			log.Printf("paragon: cattura %dx%d (luce media %.0f), %d griglie, tavola %d trovata=%v punteggio %.2f, casella %.1f", w, h, lum/float64(len(g)), len(grids), bi, d.OK, bestScore, d.Cell)
-		}
-		d.Board = bi
+		// non si ritrova (paragon chiuso o mappa cambiata): si toglie e si aspetta la fiammella
 		det.Lock()
-		if d.OK {
-			d.X, d.Y, d.Cell = d.X*f, d.Y*f, d.Cell*f
-			c := det.cand
-			near := func(a BoardDetect) bool {
-				return a.OK && absf(a.Cell-d.Cell) < 0.05*d.Cell && absf(a.X-d.X) < d.Cell/3 && absf(a.Y-d.Y) < d.Cell/3 && a.Rot == d.Rot && a.Board == d.Board
-			}
-			same := near(c)
-			if near(det.last) && time.Since(det.at) < 6*time.Second {
-				// stessa tavola di prima: le cornici restano ferme (niente tremolio), si sposta solo
-				// se lo schermo si è mosso davvero
-				l := det.last
-				if absf(l.X-d.X) < d.Cell*0.12 && absf(l.Y-d.Y) < d.Cell*0.12 && absf(l.Cell-d.Cell) < 0.02*d.Cell {
-					d.X, d.Y, d.Cell = l.X, l.Y, l.Cell
-				}
-			}
-			if same || d.Score >= 0.88 || (det.last.OK && time.Since(det.at) < 6*time.Second) {
-				det.last, det.at = d, time.Now()
-				if bi >= 0 && bi != o.Board { // la guida segue la tavola che hai aperto in gioco
-					go updateSettings(func(s *Settings) { s.Overlay.Board = bi })
-				}
-			}
-			det.cand = d
-		} else {
-			det.cand = BoardDetect{}
-		}
+		det.pinned = false
 		det.Unlock()
+		setFlameMsg("Mappa cambiata: premi 🔥 (Alt+Shift+F) per riallineare")
 	}
+}
+
+// ricerca completa, solo quando premi la fiammella
+func flameAlign() {
+	o := getSettings().Overlay
+	cb, _ := currentBoard(o)
+	if cb.step == nil || len(cb.step.Boards) == 0 {
+		setFlameMsg("Nessuna build fissata: premi 📌 in una build di Hellrise")
+		return
+	}
+	g, w, h, f := detCapture()
+	if g == nil {
+		setFlameMsg("Non riesco a leggere lo schermo")
+		return
+	}
+	grids := findGrids(g, w, h, max(10, h*12/1080), h*150/1080)
+	// prima le tavole della build, poi tutte le altre della classe: così si capisce anche
+	// se hai davanti una tavola che la build non usa
+	var best BoardDetect
+	bi := -1
+	for i, b := range cb.step.Boards {
+		for _, gr := range grids {
+			if x := matchBoard(gr, b.RawCells, b.Width); x.OK && x.Score > best.Score {
+				best, bi = x, i
+			}
+		}
+	}
+	other, otherScore := "", 0.0
+	for id, b := range classBoards(cb.step) {
+		inBuild := false
+		for _, sb := range cb.step.Boards {
+			inBuild = inBuild || sb.ID == id
+		}
+		if inBuild {
+			continue
+		}
+		for _, gr := range grids {
+			if x := matchBoard(gr, b.RawCells, b.Width); x.OK && x.Score > otherScore {
+				other, otherScore = pick(b.Name, b.En), x.Score
+			}
+		}
+	}
+	if bi < 0 || best.Score < 0.78 {
+		msg := "Non trovo una tavola della build: apri il paragon e avvicina un po' lo zoom"
+		if other != "" {
+			msg = "Vedo la tavola " + other + ", che la build fissata non usa"
+		}
+		setFlameMsg(msg)
+		log.Printf("paragon 🔥: nessuna tavola della build (migliore %.2f, altra %q %.2f)", best.Score, other, otherScore)
+		return
+	}
+	b := cb.step.Boards[bi]
+	best = refineDetect(g, w, h, best, b.RawCells, b.Width)
+	best.X, best.Y, best.Cell, best.Board = best.X*f, best.Y*f, best.Cell*f, bi
+	det.Lock()
+	det.last, det.at, det.pinned = best, time.Now(), true
+	det.Unlock()
+	lastThumb = thumb(g, w, h)
+	if bi != o.Board {
+		go updateSettings(func(s *Settings) { s.Overlay.Board = bi })
+	}
+	msg := fmt.Sprintf("🔥 Allineato: tavola %d · %s", bi+1, pick(b.Name, b.En))
+	if d := ((b.Rotation-best.Rot)%4 + 4) % 4; d != 0 && bi > 0 {
+		msg += " (nella build è girata diversamente)"
+	}
+	setFlameMsg(msg)
+	log.Printf("paragon 🔥: tavola %d trovata, punteggio %.2f, casella %.1f", bi, best.Score, best.Cell)
 }
 
 var detLogAt time.Time
@@ -1124,10 +1216,12 @@ func setOverlayHotkeys(on bool) {
 			pUnregisterHotKey.Call(ovHwnd, uintptr(id))
 		}
 	}
-	if on { // Alt+Shift+P: apre o chiude il paragon (occhietto)
+	if on { // Alt+Shift+P: apre o chiude il paragon (occhietto); Alt+Shift+F: fiammella (allinea)
 		pRegisterHotKey.Call(ovHwnd, 15, 0x0001|modShift|modNoRepeat, 'P')
+		pRegisterHotKey.Call(ovHwnd, 16, 0x0001|modShift|modNoRepeat, 'F')
 	} else {
 		pUnregisterHotKey.Call(ovHwnd, 15)
+		pUnregisterHotKey.Call(ovHwnd, 16)
 	}
 }
 
@@ -1242,6 +1336,8 @@ func overlayHotkey(id int) {
 		}
 	case 15:
 		updateSettings(func(s *Settings) { s.Overlay.ParMin = !s.Overlay.ParMin })
+	case 16:
+		requestFlame()
 	case 14:
 		updateSettings(func(s *Settings) {
 			if s.Overlay.Mode == "panel" {
@@ -1306,6 +1402,10 @@ func ovWndProc(hwnd, msg, wparam, lparam uintptr) uintptr {
 		if ovEdit || ovMove {
 			x, y := int32(int16(lparam&0xFFFF)), int32(int16(lparam>>16&0xFFFF))
 			in := func(r rect) bool { return x >= r.l && x <= r.r && y >= r.t && y <= r.b }
+			if ovFlame.r > ovFlame.l && in(ovFlame) {
+				requestFlame()
+				return 0
+			}
 			if ovEye.r > ovEye.l && in(ovEye) {
 				updateSettings(func(s *Settings) { s.Overlay.ParMin = !s.Overlay.ParMin })
 				pInvalidateRect.Call(hwnd, 0, 0)
