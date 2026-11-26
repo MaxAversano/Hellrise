@@ -272,6 +272,13 @@ var (
 	cAcc2   = col(0xFFB14A)
 )
 
+// il paragon non si disegna più in gioco (funzionava male): resta nella pagina della build
+const paragonInGame = false
+
+// la finestra dell'overlay copre solo i riquadri (non tutto lo schermo): una finestra trasparente
+// grande quanto lo schermo sopra il gioco obbliga Windows a ricomporre ogni fotogramma e fa laggare
+var ovWin rect
+
 func paintOverlay(hdc uintptr) {
 	mem, _, _ := pCreateCompatibleDC.Call(hdc)
 	bmp, _, _ := pCreateCompatibleBmp.Call(hdc, uintptr(ovW), uintptr(ovH))
@@ -289,7 +296,7 @@ func paintOverlay(hdc uintptr) {
 		hits["timers"] = drawTimers(mem, o, sc, k)
 	}
 	ovEye, ovLabel, ovFlame, ovTags = rect{}, rect{}, rect{}, ovTags[:0]
-	if o.Paragon.On {
+	if o.Paragon.On && paragonInGame {
 		r := drawParagon(mem, o, sc, k)
 		hits["paragon"] = r
 		if r.r > r.l { // occhietto: apre e chiude il paragon (clic tenendo premuto il tasto per spostare, o Alt+Shift+P)
@@ -354,10 +361,35 @@ func paintOverlay(hdc uintptr) {
 	ovDrawn = append(ovDrawn, ovLabel)
 	ovDrawn = append(ovDrawn, ovTags...)
 	ovDrawnMu.Unlock()
-	pBitBlt.Call(hdc, 0, 0, uintptr(ovW), uintptr(ovH), mem, 0, 0, srcCopy)
+	pBitBlt.Call(hdc, 0, 0, uintptr(ovWin.r-ovWin.l), uintptr(ovWin.b-ovWin.t), mem, uintptr(ovWin.l), uintptr(ovWin.t), srcCopy)
 	pSelectObject.Call(mem, old)
 	pDeleteObject.Call(bmp)
 	pDeleteDC.Call(mem)
+	// la finestra si stringe attorno ai riquadri; tutto schermo solo mentre li sposti
+	want := rect{0, 0, ovW, ovH}
+	if !ovEdit && !ovMove {
+		want = rect{}
+		for _, r := range hits {
+			if r.r <= r.l {
+				continue
+			}
+			if want.r <= want.l {
+				want = r
+			} else {
+				want = rect{min(want.l, r.l), min(want.t, r.t), max(want.r, r.r), max(want.b, r.b)}
+			}
+		}
+		if want.r <= want.l {
+			want = rect{0, 0, 1, 1}
+		}
+		m := sc(6)
+		want = rect{max(want.l-m, 0), max(want.t-m, 0), min(want.r+m, ovW), min(want.b+m, ovH)}
+	}
+	if want != ovWin {
+		ovWin = want
+		pSetWindowPos.Call(ovHwnd, ^uintptr(0), uintptr(want.l), uintptr(want.t), uintptr(want.r-want.l), uintptr(want.b-want.t), 0x0010|0x0200) // HWND_TOPMOST, NOACTIVATE|NOOWNERZORDER
+		pInvalidateRect.Call(ovHwnd, 0, 0)
+	}
 }
 
 func widgetOf(o *OverlaySet, key string) *OWidget {
@@ -1283,7 +1315,7 @@ func overlayTick() {
 		}
 	}
 	ovTicks++
-	if show && (ovEdit || ovMove || ovTicks%5 == 0) {
+	if show && (ovEdit || ovMove || ovTicks%10 == 0) { // una volta al secondo basta per i timer
 		pInvalidateRect.Call(ovHwnd, 0, 0)
 	}
 }
@@ -1378,7 +1410,7 @@ func ovWndProc(hwnd, msg, wparam, lparam uintptr) uintptr {
 		return 0
 	case 0x0201: // WM_LBUTTONDOWN: lucchetto oppure inizia a trascinare un riquadro
 		if ovEdit || ovMove {
-			x, y := int32(int16(lparam&0xFFFF)), int32(int16(lparam>>16&0xFFFF))
+			x, y := int32(int16(lparam&0xFFFF))+ovWin.l, int32(int16(lparam>>16&0xFFFF))+ovWin.t
 			in := func(r rect) bool { return x >= r.l && x <= r.r && y >= r.t && y <= r.b }
 			if ovFlame.r > ovFlame.l && in(ovFlame) {
 				requestFlame()
@@ -1411,7 +1443,7 @@ func ovWndProc(hwnd, msg, wparam, lparam uintptr) uintptr {
 		return 0
 	case 0x0200: // WM_MOUSEMOVE
 		if ovDrag != "" {
-			x, y := int32(int16(lparam&0xFFFF)), int32(int16(lparam>>16&0xFFFF))
+			x, y := int32(int16(lparam&0xFFFF))+ovWin.l, int32(int16(lparam>>16&0xFFFF))+ovWin.t
 			fx, fy := float64(x-ovDragDX)/float64(ovW), float64(y-ovDragDY)/float64(ovH)
 			key := ovDrag
 			setMu.Lock()
@@ -1449,6 +1481,7 @@ func startOverlay() {
 	wc.cbSize = uint32(unsafe.Sizeof(wc))
 	pRegisterClassEx.Call(uintptr(unsafe.Pointer(&wc)))
 	ovW, ovH = screenSize()
+	ovWin = rect{0, 0, ovW, ovH}
 	ovHwnd, _, _ = pCreateWindowEx.Call(wsExLayered|wsExTransparent|wsExTopmost|wsExToolWindow|wsExNoActivate,
 		uintptr(unsafe.Pointer(cls)), uintptr(unsafe.Pointer(title)), wsPopup, 0, 0, uintptr(ovW), uintptr(ovH), 0, 0, hinst, 0)
 	if ovHwnd == 0 {

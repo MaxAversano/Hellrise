@@ -459,7 +459,7 @@ const BTABS = [['gear', 'Equipaggiamento e abilità', SA + 'UI/gear_skills.png']
 async function showBuild(b) {
   TIPS = [];
   const el = $('#bdet'), ui = S.ui.build;
-  const head = `<div class="bhead">${tierBadge(b.tier, b.cls)}<div style="flex:1;min-width:0"><h2 class="title">${esc(b.title)}</h2><div class="row wrap" style="gap:6px;margin-top:6px"><span class="badge src-${b.src}">${b.src}</span>${b.fromSeason ? `<span class="badge" title="La stagione ${S.season} non ha ancora build su ${b.src}">stagione ${b.fromSeason}</span>` : ''}<span class="badge ${/level/i.test(b.type) ? 'lv' : 'eg'}">${esc(b.type)}</span>${b.author ? `<span class="muted" style="font-size:12.5px">di ${esc(b.author)}</span>` : ''}${b.updated ? `<span class="muted" style="font-size:12.5px">· aggiornata ${dateLbl(b.updated)}</span>` : ''}</div></div><button class="btn ghost" id="bcmp" title="Aggiungi al confronto">${cmpHas(b.url) ? '⇄ Nel confronto' : '⇄ Confronta'}</button><button class="btn bpin ${isPinned(b.url) ? 'on' : ''}" id="bpin" title="La build che stai giocando: l'overlay in gioco usa il suo paragon e la sua rotazione">📌 ${isPinned(b.url) ? 'Fissata' : 'Fissa build'}</button><button class="btn bsave ${isSaved(b.url) ? 'on' : ''}" id="bsave">${IC.star} ${isSaved(b.url) ? 'Salvata' : 'Salva build'}</button><button class="btn" id="bopen">${IC.ext} Apri guida</button></div>
+  const head = `<div class="bhead">${tierBadge(b.tier, b.cls)}<div style="flex:1;min-width:0"><h2 class="title">${esc(b.title)}</h2><div class="row wrap" style="gap:6px;margin-top:6px"><span class="badge src-${b.src}">${b.src}</span>${b.fromSeason ? `<span class="badge" title="La stagione ${S.season} non ha ancora build su ${b.src}">stagione ${b.fromSeason}</span>` : ''}<span class="badge ${/level/i.test(b.type) ? 'lv' : 'eg'}">${esc(b.type)}</span>${b.author ? `<span class="muted" style="font-size:12.5px">di ${esc(b.author)}</span>` : ''}${b.updated ? `<span class="muted" style="font-size:12.5px">· aggiornata ${dateLbl(b.updated)}</span>` : ''}</div></div><button class="btn ghost" id="bcmp" title="Aggiungi al confronto">${cmpHas(b.url) ? '⇄ Nel confronto' : '⇄ Confronta'}</button><button class="btn bpin ${isPinned(b.url) ? 'on' : ''}" id="bpin" title="La build che stai giocando: l'overlay in gioco mostra la sua rotazione">📌 ${isPinned(b.url) ? 'Fissata' : 'Fissa build'}</button><button class="btn bsave ${isSaved(b.url) ? 'on' : ''}" id="bsave">${IC.star} ${isSaved(b.url) ? 'Salvata' : 'Salva build'}</button><button class="btn" id="bopen">${IC.ext} Apri guida</button></div>
     <div id="bnote"></div>
     ${b.tier || b.info ? `<div class="robinfo"><b>Rob2628:</b> ${b.tier ? `tier ${esc(b.tier)}${b.tierNote ? ' (' + esc(b.tierNote) + ')' : ''}` : ''}${b.info ? ' · ' + esc(b.info) : ''}</div>` : ''}`;
   let pinCtx = null;
@@ -714,7 +714,7 @@ async function parView(box, view, v, b) {
   const strip = `<div class="pstrip"><button data-k="-1" class="${ui.pboard === -1 ? 'on' : ''}"><span class="n">⊞</span><div><b>Panoramica</b><small>${st.boards.length} tavole</small></div></button>${st.boards.map((bd, i) => `<button data-k="${i}" class="${ui.pboard === i ? 'on' : ''}"><span class="n">${i + 1}</span><div><b>${esc(TN(view, bd.n, ''))}</b><small>${bd.g ? esc(TN(view, bd.g, '')) : 'senza glifo'}</small></div></button>`).join('')}</div>`;
   const steps = P.steps.length > 1 ? `<div class="seg" id="pstep">${P.steps.map((x, i) => `<button data-s="${i}" class="${i === (ui.pstep || 0) ? 'on' : ''}">${esc(x.name || 'Fase ' + (i + 1))}</button>`).join('')}</div>` : '';
   const total = P.points || st.boards.reduce((a, bd) => a + bd.tiles.filter(t => t[2]).length, 0);
-  box.innerHTML = `<div class="row wrap" style="margin-bottom:10px;gap:8px">${steps}<span class="muted" style="font-size:12.5px">${total} punti paragon</span><span class="sp"></span><button class="btn ${isPinned(b.url) ? 'pri' : ''}" id="toov">${isPinned(b.url) ? '📌 In uso nell\'overlay' : '📌 Fissa e usa nell\'overlay'}</button></div>${strip}<div id="pbody"></div>`;
+  box.innerHTML = `<div class="row wrap" style="margin-bottom:10px;gap:8px">${steps}<span class="muted" style="font-size:12.5px">${total} punti paragon</span></div>${strip}<div id="pbody"></div>`;
   const body = $('#pbody', box);
   if (ui.pboard === -1) { body.innerHTML = paragonView(view, { points: P.points, boards: st.boards.map(bd => ({ ...bd, r: bd.rot })) }, P); bindViewer(body);
     let down = null;
@@ -733,7 +733,7 @@ async function parView(box, view, v, b) {
   }
   $$('.pstrip button', box).forEach(x => x.onclick = () => { ui.pboard = +x.dataset.k; parView(box, view, v, b); });
   $$('#pstep button', box).forEach(x => x.onclick = () => { ui.pstep = +x.dataset.s; parView(box, view, v, b); if (isPinned(b.url)) pinBuild(b, view, v, true); });
-  $('#toov', box).onclick = async () => { await pinBuild(b, view, v); const pb = $('#bpin'); if (pb) { pb.classList.add('on'); pb.textContent = '📌 Fissata'; } };
+  $('#toov', box)?.addEventListener('click', async () => { await pinBuild(b, view, v); });
 }
 const PTILE = 60;
 const PRAR = { Common: '#5b534e', Magic: '#4f8bff', Rare: '#ffd24a', Legendary: '#ff7a2a', Glyph: '#c07bff', Gate: '#ddd' };
@@ -917,7 +917,7 @@ async function pinBuild(b, view, v, quiet) {
     S.st.settings = await post('/api/settings', { pinned, overlay: overlayFor(b, view, v) });
     applySettings();
     if (!isSaved(b.url)) toggleSave(b);
-    if (!quiet) toast(v.paragon?.boards?.length || v.mxParagon?.length ? 'Build fissata: l\'overlay in gioco ora usa il suo paragon e la sua rotazione' : 'Build fissata (questa variante non ha un paragon)');
+    if (!quiet) toast('Build fissata: l\'overlay in gioco mostra la sua rotazione');
   } catch (e) { toast(e.message); }
 }
 async function unpinBuild() {
@@ -1275,7 +1275,7 @@ PAGES.overlay = async main => {
   const o = S.st.settings.overlay || {};
   const tg = (path, label, small) => { const v = path.split('.').reduce((a, k) => a?.[k], o); return `<label class="tog"><input type="checkbox" data-o="${path}" ${v ? 'checked' : ''}><i></i><span><b>${label}</b>${small ? `<small>${small}</small>` : ''}</span></label>`; };
   main.innerHTML = `<div class="page">
-    <div class="hdr"><div><h1 class="pt">Overlay in gioco</h1><p class="sub" style="margin:0">Riquadri sopra Diablo IV (finestra senza bordi): timer degli eventi e guida paragon. Non legge e non tocca il gioco.</p></div><span class="sp"></span><span class="statusline"><span class="dot ${S.st.diablo ? 'ok' : ''}"></span>${S.st.diablo ? 'Diablo IV aperto' : 'Diablo IV chiuso'}</span></div>
+    <div class="hdr"><div><h1 class="pt">Overlay in gioco</h1><p class="sub" style="margin:0">Riquadri sopra Diablo IV (finestra senza bordi): timer degli eventi e rotazione delle abilità. Non legge e non tocca il gioco.</p></div><span class="sp"></span><span class="statusline"><span class="dot ${S.st.diablo ? 'ok' : ''}"></span>${S.st.diablo ? 'Diablo IV aperto' : 'Diablo IV chiuso'}</span></div>
     <div class="sgrid">
       <div class="glass card"><h2>Generale</h2>
         ${tg('enabled', 'Overlay attivo', 'Compare solo quando Diablo IV è in primo piano')}
@@ -1284,24 +1284,17 @@ PAGES.overlay = async main => {
         <label class="field"><span>Opacità · <b id="opv">${o.opacity || 92}%</b></span><input type="range" min="20" max="100" step="2" value="${o.opacity || 92}" data-o="opacity"></label>
         <label class="field"><span>Tieni premuto per spostare e bloccare i riquadri</span><select class="inp" data-o="moveKey">${MOVEKEYS.map(([v, l]) => `<option value="${v}" ${(o.moveKey || 0xA4) === v ? 'selected' : ''}>${l}</option>`).join('')}</select></label>
         <div class="muted" style="font-size:12.5px;line-height:1.5">In gioco, tenendo premuto il tasto scelto, trascini i riquadri col mouse; il lucchetto in alto a destra di ogni riquadro lo blocca (o lo sblocca) dov'è. Lasciando il tasto i clic tornano al gioco.</div>
-        ${tg('timers.lock', 'Timer bloccati')}${tg('paragon.lock', 'Riquadro paragon bloccato')}
-        <div class="keys" style="margin-top:6px"><span class="keycap">Ctrl+Shift+O</span><span>mostra o nasconde tutto</span><span class="keycap">Ctrl+Shift+E</span><span>sposta i riquadri col mouse (poi di nuovo per finire)</span><span class="keycap">Ctrl+Shift+T</span><span>timer sì/no</span><span class="keycap">Alt+Shift+P</span><span>apre o chiude il paragon (occhietto 👁 sul riquadro: cliccalo tenendo premuto il tasto per spostare)</span><span class="keycap">Ctrl+Shift+← →</span><span>tavola paragon precedente / successiva</span><span class="keycap">Ctrl+Shift+↑ ↓</span><span>fase del paragon</span><span class="keycap">Ctrl+Shift+R / Q</span><span>ruota la tavola in senso orario / antiorario</span></div>
+        ${tg('timers.lock', 'Timer bloccati')}
+        <div class="keys" style="margin-top:6px"><span class="keycap">Ctrl+Shift+O</span><span>mostra o nasconde tutto</span><span class="keycap">Ctrl+Shift+E</span><span>sposta i riquadri col mouse (poi di nuovo per finire)</span><span class="keycap">Ctrl+Shift+T</span><span>timer sì/no</span></div>
       </div>
       <div class="glass card"><h2>Timer degli eventi</h2>
         ${tg('timers.on', 'Mostra i timer')}
         ${tg('tBoss', 'Boss del mondo')}${tg('tHelltide', 'Marea infernale')}${tg('tLegion', 'Legione')}
       </div>
       <div class="glass card"><h2>Rotazione delle abilità</h2>
-        ${tg('rotation.on', 'Mostra la rotazione', o.rotLines?.length ? esc(o.rotTitle || '') + ' · ' + o.rotLines.length + ' passaggi' : 'Scegli una build e premi “Rotazione nell\'overlay”')}
+        ${tg('rotation.on', 'Mostra la rotazione', o.rotLines?.length ? esc(o.rotTitle || '') + ' · ' + o.rotLines.length + ' passaggi' : 'Fissa una build con 📌: la rotazione arriva da sola')}
         ${tg('rotation.lock', 'Riquadro rotazione bloccato')}
         ${o.rotLines?.length ? `<ol class="rotlist">${o.rotLines.map(l => `<li>${esc(l)}</li>`).join('')}</ol>` : ''}
-      </div>
-      <div class="glass card" style="grid-column:1/-1"><h2>Guida paragon</h2>
-        ${tg('paragon.on', 'Mostra il paragon', 'Guida con tutte le tavole della build fissata. Si apre e si chiude in gioco con Alt+Shift+P o con l\'occhietto')}${tg('parMin', 'Paragon chiuso (solo occhietto)')}
-        <div class="row wrap" style="gap:14px;align-items:flex-start;margin:4px 0 10px">
-          <div class="muted" style="font-size:12.5px;flex:1;min-width:260px;line-height:1.55">${o.mode !== 'panel' ? 'Automatico: quando apri il paragon in gioco Hellrise riconosce da solo la tavola (grandezza delle caselle, posizione, rotazione e quale tavola della build è) e ci disegna sopra le cornici delle caselle da prendere. Nessun tasto da premere. Fuori dal paragon non mostra nulla.' : 'Riquadro: la tavola disegnata in un angolo dello schermo, da seguire a occhio. Cambi tavola con Ctrl+Shift+← →, la giri con Ctrl+Shift+R / Q.'}</div>
-        </div>
-        <div id="ovpar"></div>
       </div>
     </div></div>`;
   const save = async patch => { const cur = { ...(S.st.settings.overlay || {}) }; for (const [k, v] of Object.entries(patch)) { const ks = k.split('.'); if (ks.length === 2) cur[ks[0]] = { ...(cur[ks[0]] || {}), [ks[1]]: v }; else cur[k] = v; } try { S.st.settings = await post('/api/settings', { overlay: cur }); } catch (e) { toast(e.message); } };
@@ -1312,25 +1305,6 @@ PAGES.overlay = async main => {
     if (inp.tagName === 'SELECT') { inp.onchange = () => save({ [inp.dataset.o]: +inp.value }); return; }
     inp.onchange = () => save({ [inp.dataset.o]: inp.checked });
   });
-  const box = $('#ovpar');
-  const pin = S.st.settings.pinned;
-  if (!o.planner) { box.innerHTML = `<div class="muted" style="margin-top:6px">${pin ? `La build fissata (<b>${esc(pin.title)}</b>) non ha un paragon in questa variante.` : `Nessuna build fissata. Apri la build che stai giocando in <a class="link" href="#/build">Build</a> e premi <b>📌 Fissa build</b>: l'overlay prende da solo paragon e rotazione.`}</div>`; return; }
-  box.innerHTML = `<div class="skel" style="height:120px"></div>`;
-  let p; try { p = await api('/api/ovparagon?id=' + encodeURIComponent(o.planner)); } catch (e) { box.innerHTML = `<div class="muted">Paragon non disponibile: ${esc(e.message)}</div>`; return; }
-  const vi = Math.min(o.variant || 0, p.variants.length - 1), v = p.variants[vi] || {}, steps = v.paragon || [];
-  const si = Math.min(o.step || 0, Math.max(steps.length - 1, 0)), st = steps[si];
-  box.innerHTML = `<div class="row wrap" style="gap:10px;margin:6px 0 12px"><b style="font:600 16px var(--serif)">${esc(o.title || p.name)}</b><span class="sp"></span>
-      <select class="inp" id="ovv">${p.variants.map((x, i) => `<option value="${i}" ${i === vi ? 'selected' : ''} ${x.paragon?.length ? '' : 'disabled'}>${esc(x.name)}</option>`).join('')}</select>
-      ${steps.length > 1 ? `<select class="inp" id="ovs">${steps.map((x, i) => `<option value="${i}" ${i === si ? 'selected' : ''}>${esc(x.name || 'Fase ' + (i + 1))}</option>`).join('')}</select>` : ''}
-      <label class="field" style="flex-direction:row;align-items:center;gap:8px"><span>Caselle del riquadro</span><input class="inp" type="number" min="6" max="28" value="${o.cell || 13}" id="ovc" style="width:70px"></label>
-      <button class="btn ghost sm" id="ovx">${IC.trash} Togli</button></div>
-    ${PLEGEND}<div class="pboards">${(st?.boards || []).map((bd, i) => boardCard(bd, i)).join('') || '<div class="muted">Questa variante non ha un paragon.</div>'}</div>`;
-  $$('.pboards canvas', box).forEach((c, i) => drawBoard(c, st.boards[i]));
-  $$('.pboard', box).forEach((el, i) => { el.classList.toggle('on', i === (o.board || 0)); el.onclick = async () => { await save({ board: i }); $$('.pboard', box).forEach((x, j) => x.classList.toggle('on', j === i)); toast('Tavola ' + (i + 1) + ' mostrata nell\'overlay'); }; });
-  $('#ovv').onchange = async e => { await save({ variant: +e.target.value, step: 0, board: 0 }); PAGES.overlay(main); };
-  $('#ovs')?.addEventListener('change', async e => { await save({ step: +e.target.value, board: 0 }); PAGES.overlay(main); });
-  $('#ovc').onchange = e => save({ cell: +e.target.value });
-  $('#ovx').onclick = async () => { await save({ planner: '', title: '' }); PAGES.overlay(main); };
 };
 
 // ---------------------------------------------------------------- impostazioni
