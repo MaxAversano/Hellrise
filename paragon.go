@@ -415,6 +415,43 @@ func d4bParagonBuild(u string) (*PBuild, error) {
 				w = d.Boards[id].Width
 			}
 			tiles, _ := bm["tiles"].([]any)
+			// le coordinate di D4Builds non partono da 0 come quelle del gioco: si cerca lo spostamento
+			// per cui le caselle di D4Builds cadono sulle caselle del gioco dello stesso tipo
+			rarCode := map[string]byte{"Common": 1, "Magic": 2, "Rare": 3, "Legendary": 4, "Gate": 5, "Paragon Glyph": 6, "Glyph": 6, "Paragon Starting": 7, "Start": 7}
+			var cells []byte
+			if d != nil {
+				cells = d.Boards[id].Cells
+			}
+			bestDR, bestDC, bestHit := 0, 0, -1
+			if len(cells) == w*w {
+				for dr := -2; dr <= 2; dr++ {
+					for dc := -2; dc <= 2; dc++ {
+						hit := 0
+						for _, tx := range tiles {
+							t, _ := tx.([]any)
+							if len(t) < 6 {
+								continue
+							}
+							r, _ := t[0].(float64)
+							c, _ := t[1].(float64)
+							rr, cc := int(r)+dr, int(c)+dc
+							if rr < 0 || cc < 0 || rr >= w || cc >= w {
+								continue
+							}
+							rs, _ := t[5].(string)
+							if gc := cells[rr*w+cc]; gc != 0 {
+								hit++
+								if rc, ok := rarCode[rs]; ok && rc == gc {
+									hit++
+								}
+							}
+						}
+						if hit > bestHit {
+							bestDR, bestDC, bestHit = dr, dc, hit
+						}
+					}
+				}
+			}
 			for _, tx := range tiles {
 				t, _ := tx.([]any)
 				if len(t) < 3 {
@@ -423,8 +460,9 @@ func d4bParagonBuild(u string) (*PBuild, error) {
 				r, _ := t[0].(float64)
 				c, _ := t[1].(float64)
 				a, _ := t[2].(float64)
-				if a == 1 {
-					rb.Nodes[itoa(int(r)*w+int(c))] = 1
+				rr, cc := int(r)+bestDR, int(c)+bestDC
+				if a == 1 && rr >= 0 && cc >= 0 && rr < w && cc < w {
+					rb.Nodes[itoa(rr*w+cc)] = 1
 				}
 			}
 			pb := paragonBoard(d, rb)
